@@ -1,0 +1,128 @@
+// CulinaRPG — Prisma schema (SQLite)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id             Int      @id @default(autoincrement())
+  username       String   @unique // identifiant public (@pseudo), minuscules
+  email          String   @unique
+  passwordHash   String
+  displayName    String
+  bio            String   @default("")
+  avatar         String   @default("🧑‍🍳") // emoji
+  avatarColor    String   @default("violet") // clé de dégradé
+  avatarImage    String?  // photo (data URL JPEG redimensionnée côté client)
+  chefClass      String?  // compétence de prédilection : +10 % d'XP
+  selectedTitle  String?  // titre choisi parmi les titres débloqués
+  onboarded      Boolean  @default(false)
+  totalXp        Int      @default(0)
+  currentStreak  Int      @default(0)
+  bestStreak     Int      @default(0)
+  lastActiveDate String?  // YYYY-MM-DD (jour local du serveur)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  sessions           Session[]
+  skills             UserSkill[]
+  dailyCompletions   UserDailyCompletion[]
+  recipeCompletions  UserRecipeCompletion[]
+}
+
+model Session {
+  id        String   @id // SHA-256 du jeton (le jeton brut n'est jamais stocké)
+  userId    Int
+  userAgent String?
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model UserSkill {
+  id     Int    @id @default(autoincrement())
+  userId Int
+  skill  String // knife | fire | seasoning | prep | baking
+  xp     Int    @default(0)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, skill])
+}
+
+model DailyTask {
+  id          Int     @id @default(autoincrement())
+  slug        String  @unique
+  title       String
+  description String
+  icon        String  // nom d'icône Lucide
+  skill       String  // compétence récompensée
+  xpReward    Int
+  active      Boolean @default(true)
+
+  completions UserDailyCompletion[]
+}
+
+model UserDailyCompletion {
+  id          Int      @id @default(autoincrement())
+  userId      Int
+  dailyTaskId Int
+  date        String   // YYYY-MM-DD
+  completedAt DateTime @default(now())
+
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  dailyTask DailyTask @relation(fields: [dailyTaskId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, dailyTaskId, date])
+}
+
+model Recipe {
+  id           Int      @id @default(autoincrement())
+  externalId   String?  @unique // ex: "base-creme-brulee" ou "mealdb-52768"
+  source       String   @default("base") // base | themealdb
+  name         String
+  description  String
+  category     String
+  area         String?
+  searchText   String   @default("") // nom + catégorie + ingrédients, minuscules sans accents
+  wikiTitle    String?  // article Wikipédia utilisé pour la photo
+  imageUrl     String?
+  imageSource  String?  // page d'origine de la photo (crédit)
+  imageChecked Boolean  @default(false)
+  emoji        String   @default("🍽️")
+  timeMinutes  Int
+  difficulty   Int      // 1 à 5
+  ingredients  String   // JSON: [{ name, measure }]
+  instructions String
+  skillRewards String   // JSON: { knife: 40, fire: 25, ... }
+  mainSkill    String   @default("prep") // compétence la plus récompensée (filtre)
+  totalXp      Int
+  createdAt    DateTime @default(now())
+
+  completions UserRecipeCompletion[]
+
+  @@index([category])
+  @@index([mainSkill])
+  @@index([name])
+}
+
+model UserRecipeCompletion {
+  id         Int      @id @default(autoincrement())
+  userId     Int
+  recipeId   Int
+  xpGained   Int
+  cookedAt   DateTime @default(now())
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  recipe Recipe @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
