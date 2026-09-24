@@ -170,17 +170,17 @@ async function main() {
 
   // Les photos déjà trouvées (cache) sont appliquées directement ; les autres restent à résoudre
   const cache = loadCache();
-  await prisma.$transaction(all.map((r) => {
+  const upserts = all.map((r) => {
     const hasCache = r.source === 'base' && Object.prototype.hasOwnProperty.call(cache, r.name);
     let img = {};
     if (hasCache) img = { imageUrl: cache[r.name]?.url ?? null, imageSource: cache[r.name]?.source ?? null, imageChecked: true };
     else if (r.source === 'base') img = { imageUrl: null, imageSource: null, imageChecked: false };
-    return prisma.recipe.upsert({
-      where: { externalId: r.externalId },
-      update: { ...r, ...img },
-      create: { ...r, ...img },
-    });
-  }));
+    return { where: { externalId: r.externalId }, update: { ...r, ...img }, create: { ...r, ...img } };
+  });
+  // Par lots de 50 : rapide et sans transaction géante sur une base distante (Neon)
+  for (let i = 0; i < upserts.length; i += 50) {
+    await prisma.$transaction(upserts.slice(i, i + 50).map((u) => prisma.recipe.upsert(u)));
+  }
   console.log(`📖 ${base.length} recettes de base${imported.length ? ` + ${imported.length} TheMealDB` : ''}`);
 
   await resolveRecipeImages(prisma);

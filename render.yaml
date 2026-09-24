@@ -1,0 +1,22 @@
+# Blueprint Render — CulinaRPG (offre gratuite) + base PostgreSQL Neon
+# Render → New → Blueprint → choisir ce dépôt. Seule DATABASE_URL est à saisir (URL Neon).
+services:
+  - type: web
+    name: culinarpg
+    runtime: node
+    plan: free
+    region: frankfurt
+    branch: claude/cuisine-rpg-mvp-deyfv0
+    buildCommand: npm run render-build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: DATABASE_URL
+        sync: false # à coller : chaîne de connexion Neon (…?sslmode=require)
+      - key: TRUST_PROXY
+        value: "1"
+      - key: COOKIE_SECURE
+        value: "true"

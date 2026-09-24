@@ -102,6 +102,9 @@ function publicUser(user, skills = []) {
 // ---------------------------------------------------------------------------
 async function grantXp(userId, baseRewards, extraOps = []) {
   return prisma.$transaction(async (tx) => {
+    // Verrou de ligne : deux gains simultanés pour le même joueur s'exécutent l'un après l'autre
+    // (sinon chacun lirait l'ancien total d'XP et l'un des deux gains serait perdu)
+    await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${userId} FOR UPDATE`;
     const user = await tx.user.findUnique({ where: { id: userId }, include: { skills: true } });
     const before = Object.fromEntries(user.skills.map((s) => [s.skill, s.xp]));
 

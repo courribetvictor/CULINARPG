@@ -2,17 +2,28 @@
 
 Application **mobile-first** (PWA installable) de cuisine gamifiée : chaque recette cuisinée et chaque daily complétée rapportent de l'XP dans 5 compétences culinaires. Crée ton chef, choisis ta classe, monte en niveau, entretiens ta série 🔥 et débloque badges et titres.
 
-**Stack :** Node.js · Express · Prisma (SQLite) · SPA HTML5 + Tailwind CDN + Lucide + canvas-confetti.
+**Stack :** Node.js · Express · Prisma (PostgreSQL — Neon) · SPA HTML5 + Tailwind CDN + Lucide + canvas-confetti.
 
-## Démarrage
+## Démarrage en local
 
 ```bash
-cp .env.example .env
+cp .env.example .env    # puis colle ta chaîne de connexion PostgreSQL (Neon) dans DATABASE_URL
 npm install
 npx prisma db push
 node prisma/seed.js     # 500 recettes + photos + dailies
 npm start               # http://localhost:3000  (PORT=3100 npm start pour changer de port)
 ```
+
+> Astuce : crée une branche `dev` dans Neon (bouton *Branches*) pour avoir une base locale séparée de la production.
+
+## Mise en ligne (Render + Neon, gratuit)
+
+1. **Neon** — crée un compte sur [neon.tech](https://neon.tech), un projet (région *Europe — Frankfurt*), puis copie la **chaîne de connexion** (*Connection string*, version non « pooled ») : `postgresql://…/neondb?sslmode=require`.
+2. **GitHub** — pousse le code : `git push -u origin claude/cuisine-rpg-mvp-deyfv0`.
+3. **Render** — sur [render.com](https://render.com) : *New → Blueprint*, connecte ton compte GitHub et choisis le dépôt **CULINARPG**. Render lit `render.yaml` et ne demande qu'une valeur : colle l'URL Neon dans `DATABASE_URL`, puis *Apply*.
+4. Le premier déploiement prend 2 à 4 minutes (installation, création des tables, 500 recettes). L'app est ensuite en ligne sur `https://culinarpg.onrender.com` (ou `culinarpg-xxxx.onrender.com` si le nom est pris).
+
+Chaque `git push` sur la branche redéploie automatiquement. Offre gratuite : l'app s'endort après 15 min sans visite et met ~50 s à se réveiller ; les données, elles, sont conservées chez Neon.
 
 Sur mobile : ouvre l'adresse du serveur dans Safari/Chrome puis **« Ajouter à l'écran d'accueil »** — l'app s'ouvre en plein écran comme une app native.
 
@@ -87,6 +98,7 @@ lib/game.js                 niveaux, classes, titres, calcul des récompenses
 lib/auth.js                 hachage, sessions, rate limit, validation
 lib/images.js               résolution des photos Wikipédia (+ CLI)
 lib/text.js                 normalisation pour la recherche
+render.yaml                 déploiement Render (Blueprint)
 prisma/schema.prisma        User, Session, UserSkill, DailyTask, UserDailyCompletion, Recipe, UserRecipeCompletion
 prisma/seed.js              catalogue + photos + dailies
 prisma/data/recipes/*.js    les 500 recettes (14 catégories)

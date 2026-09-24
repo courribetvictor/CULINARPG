@@ -1,11 +1,11 @@
-// CulinaRPG — Prisma schema (SQLite)
+// CulinaRPG — Prisma schema (PostgreSQL : Neon en production)
 
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
