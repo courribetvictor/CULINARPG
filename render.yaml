@@ -6,7 +6,7 @@ services:
     runtime: node
     plan: free
     region: frankfurt
-    branch: claude/cuisine-rpg-mvp-deyfv0
+    branch: main
     buildCommand: npm run render-build
     startCommand: npm start
     healthCheckPath: /api/health
