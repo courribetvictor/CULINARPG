@@ -214,12 +214,33 @@ function serializeRecipe(r, cookedCount = 0) {
 // ===========================================================================
 app.get('/api/health', (req, res) => res.json({ ok: true }));
 
+// Mode privé : si SIGNUP_CODE est défini, l'inscription exige ce code d'invitation
+const SIGNUP_CODE = (process.env.SIGNUP_CODE || '').trim();
+
 app.get('/api/meta', (req, res) => {
   res.json({
     classes: Object.entries(CHEF_CLASSES).map(([skill, c]) => ({ skill, ...c })),
     avatarColors: auth.AVATAR_COLORS,
     classBonus: CLASS_BONUS,
+    inviteRequired: Boolean(SIGNUP_CODE),
   });
+});
+
+// Liaison app Android (TWA) ↔ site : sans ce fichier, Android affiche une barre d'adresse
+app.get('/.well-known/assetlinks.json', (req, res) => {
+  const pkg = (process.env.TWA_PACKAGE_NAME || '').trim();
+  const fingerprints = (process.env.TWA_SHA256_FINGERPRINTS || '').split(',').map((s) => s.trim()).filter(Boolean);
+  res.json(pkg && fingerprints.length ? [{
+    relation: ['delegate_permission/common.handle_all_urls'],
+    target: { namespace: 'android_app', package_name: pkg, sha256_cert_fingerprints: fingerprints },
+  }] : []);
+});
+
+// Politique de confidentialité (exigée par le Play Store) — e-mail de contact via CONTACT_EMAIL
+const PRIVACY_HTML = require('fs').readFileSync(path.join(__dirname, 'views', 'privacy.html'), 'utf8');
+app.get(['/privacy', '/privacy.html'], (req, res) => {
+  const contact = (process.env.CONTACT_EMAIL || 'contact@exemple.fr').replace(/[<>"&]/g, '');
+  res.type('html').send(PRIVACY_HTML.replace(/\{\{CONTACT_EMAIL\}\}/g, contact));
 });
 
 // ---------------------------------------------------------------------------
@@ -230,6 +251,10 @@ app.post('/api/auth/signup', authLimiter, wrap(async (req, res) => {
   const email = auth.normEmail(req.body.email);
   const { password } = req.body;
   const displayName = String(req.body.displayName || req.body.username || '').trim().slice(0, 30);
+
+  if (SIGNUP_CODE && String(req.body.inviteCode || '').trim() !== SIGNUP_CODE) {
+    return res.status(403).json({ error: 'Code d\'invitation invalide.', field: 'inviteCode' });
+  }
 
   if (!auth.USERNAME_RE.test(username)) return badRequest(res, 'Pseudo : 3 à 20 caractères (lettres, chiffres, « _ » ou « . »).', 'username');
   if (!auth.EMAIL_RE.test(email)) return badRequest(res, 'Adresse e-mail invalide.', 'email');

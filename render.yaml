@@ -20,3 +20,9 @@ services:
         value: "1"
       - key: COOKIE_SECURE
         value: "true"
+      - key: SIGNUP_CODE
+        sync: false # code d'invitation obligatoire pour s'inscrire (laisser vide = inscriptions ouvertes)
+      - key: CONTACT_EMAIL
+        sync: false # e-mail affiché sur la page /privacy (exigée par le Play Store)
+      # À ajouter après avoir généré l'app Android (PWABuilder / Bubblewrap) :
+      # TWA_PACKAGE_NAME (ex. app.culinarpg.twa) et TWA_SHA256_FINGERPRINTS

@@ -269,6 +269,7 @@
                 ${field({ name: 'username', label: 'Pseudo', placeholder: 'chef_victor', autocomplete: 'username', extra: 'autocapitalize="none" maxlength="20" required' })}
                 ${field({ name: 'email', label: 'E-mail', type: 'email', placeholder: 'chef@exemple.fr', autocomplete: 'email', extra: 'autocapitalize="none" required' })}
                 ${field({ name: 'password', label: 'Mot de passe (8 caractères min.)', type: 'password', placeholder: '••••••••', autocomplete: 'new-password', extra: 'minlength="8" required' })}
+                ${state.meta?.inviteRequired ? field({ name: 'inviteCode', label: 'Code d\'invitation', placeholder: 'Code reçu', autocomplete: 'off', extra: 'autocapitalize="none" required' }) : ''}
               `}
               <button type="submit" class="${primaryBtn}">
                 <i data-lucide="${isLogin ? 'log-in' : 'sparkles'}" class="w-5 h-5"></i>${isLogin ? 'Entrer dans la cuisine' : 'Créer mon personnage'}
@@ -276,7 +277,7 @@
             </form>
           </div>
         </div>
-        <p class="text-center text-xs text-slate-600 pb-2">Photos des recettes : Wikipédia / Wikimedia Commons</p>
+        <p class="text-center text-xs text-slate-600 pb-2">Photos des recettes : Wikipédia / Wikimedia Commons · <a href="/privacy" class="underline">Confidentialité</a></p>
       </div>`;
     icons();
 
@@ -754,7 +755,7 @@
 
           <form id="acc-delete" class="rounded-3xl p-5 border border-rose-500/30 bg-rose-500/5 space-y-3" novalidate>
             <h2 class="font-bold tracking-tight text-rose-200 flex items-center gap-2"><i data-lucide="triangle-alert" class="w-4 h-4"></i>Zone de danger</h2>
-            <p class="text-xs text-rose-200/70">Supprime définitivement ton compte, ta progression et ton historique.</p>
+            <p class="text-xs text-rose-200/70">Supprime définitivement ton compte, ta progression et ton historique. <a href="/privacy" class="underline">Politique de confidentialité</a></p>
             ${field({ name: 'password', label: 'Confirme avec ton mot de passe', type: 'password', autocomplete: 'current-password' })}
             <button type="submit" class="press w-full rounded-2xl py-3.5 font-bold text-rose-100 bg-rose-600/80">Supprimer mon compte</button>
           </form>

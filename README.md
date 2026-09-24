@@ -23,9 +23,22 @@ npm start               # http://localhost:3000  (PORT=3100 npm start pour chang
 3. **Render** — sur [render.com](https://render.com) : *New → Blueprint*, connecte ton compte GitHub et choisis le dépôt **CULINARPG**. Render lit `render.yaml` et ne demande qu'une valeur : colle l'URL Neon dans `DATABASE_URL`, puis *Apply*.
 4. Le premier déploiement prend 2 à 4 minutes (installation, création des tables, 500 recettes). L'app est ensuite en ligne sur `https://culinarpg.onrender.com` (ou `culinarpg-xxxx.onrender.com` si le nom est pris).
 
+Render demande aussi `SIGNUP_CODE` (code d'invitation : personne ne peut s'inscrire sans lui — laisse vide pour ouvrir les inscriptions) et `CONTACT_EMAIL` (affiché sur `/privacy`).
+
 Chaque `git push` sur la branche redéploie automatiquement. Offre gratuite : l'app s'endort après 15 min sans visite et met ~50 s à se réveiller ; les données, elles, sont conservées chez Neon.
 
 Sur mobile : ouvre l'adresse du serveur dans Safari/Chrome puis **« Ajouter à l'écran d'accueil »** — l'app s'ouvre en plein écran comme une app native.
+
+## Application Android (Play Store)
+
+L'app web est emballée en **TWA** (Trusted Web Activity) : une vraie app Android qui affiche le site en plein écran, sans barre d'adresse. Prérequis : l'app est en ligne sur Render (HTTPS).
+
+1. Sur [pwabuilder.com](https://www.pwabuilder.com), colle l'URL Render → *Package for stores* → **Android**. Choisis un identifiant de paquet (ex. `app.culinarpg.twa`) et garde la **clé de signature** générée (sans elle, impossible de publier les mises à jour).
+2. Le zip contient `assetlinks.json` : recopie `package_name` et l'empreinte `sha256_cert_fingerprints` dans les variables Render **`TWA_PACKAGE_NAME`** et **`TWA_SHA256_FINGERPRINTS`** (plusieurs empreintes séparées par des virgules). Le serveur les publie sur `/.well-known/assetlinks.json`.
+3. **Test privé** : installe l'`.apk` du zip sur ton téléphone (autoriser les sources inconnues).
+4. **Play Store** : compte [Google Play Console](https://play.google.com/console) (25 $ une fois), crée l'app, envoie le `.aab`. Ajoute l'empreinte de la clé *Play App Signing* (Console → Intégrité de l'app) dans `TWA_SHA256_FINGERPRINTS`. Publie d'abord en **test interne** (toi + jusqu'à 100 testeurs), puis en production. Politique de confidentialité à renseigner : `https://<ton-app>.onrender.com/privacy`.
+
+Google exige qu'un compte puisse être supprimé depuis l'app : c'est le cas (*Mon compte → Zone de danger*).
 
 ## Fonctionnalités
 

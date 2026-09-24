@@ -1,8 +1,10 @@
 {
+  "id": "/",
   "name": "CulinaRPG — Monte en niveau en cuisinant",
   "short_name": "CulinaRPG",
   "description": "500 recettes, 5 compétences, des quêtes quotidiennes : la cuisine version RPG.",
   "lang": "fr",
+  "dir": "ltr",
   "start_url": "/#profile",
   "scope": "/",
   "display": "standalone",
@@ -15,5 +17,14 @@
     { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
     { "src": "/icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
     { "src": "/icons/icon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ],
+  "screenshots": [
+    { "src": "/screenshots/quetes.png", "sizes": "780x1688", "type": "image/png", "form_factor": "narrow", "label": "500 recettes illustrées à cuisiner" },
+    { "src": "/screenshots/recette.png", "sizes": "780x1688", "type": "image/png", "form_factor": "narrow", "label": "Fiche recette et récompenses d'XP" },
+    { "src": "/screenshots/classe.png", "sizes": "780x1688", "type": "image/png", "form_factor": "narrow", "label": "Choisis ta classe de chef" }
+  ],
+  "shortcuts": [
+    { "name": "Quêtes du jour", "url": "/#dailies", "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Recettes", "url": "/#recipes", "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }] }
   ]
 }
