@@ -906,6 +906,8 @@ app.use((err, req, res, next) => {
   if (err.type === 'entity.too.large') return res.status(413).json({ error: 'Requête trop volumineuse.' });
   if (err.type === 'entity.parse.failed') return res.status(400).json({ error: 'JSON invalide.' });
   console.error(err);
+  // Erreurs Stripe : renvoyer le message pour faciliter le diagnostic
+  if (err.type && err.type.startsWith('Stripe')) return res.status(402).json({ error: err.message });
   return res.status(err.status || 500).json({ error: 'Erreur serveur' });
 });
 
