@@ -1669,6 +1669,10 @@
     const blockHtml = (b) => {
       if (b.type === 'technique') return `<div class="rounded-xl border-l-4 border-orange-400 bg-orange-50 p-3 my-3"><p class="text-xs font-black uppercase tracking-wider text-orange-600 mb-1">${esc(b.title)}</p><p class="text-sm text-stone-700 leading-relaxed">${esc(b.text)}</p></div>`;
       if (b.type === 'tip') return `<div class="rounded-xl border-l-4 border-amber-400 bg-amber-50 p-3 my-3"><p class="text-xs font-black uppercase tracking-wider text-amber-600 mb-1">💡 Astuce</p><p class="text-sm text-stone-700 leading-relaxed">${esc(b.text)}</p></div>`;
+      if (b.type === 'warning') return `<div class="rounded-xl border-l-4 border-rose-400 bg-rose-50 p-3 my-3"><p class="text-xs font-black uppercase tracking-wider text-rose-600 mb-1">⚠️ Erreur courante</p><p class="text-sm text-stone-700 leading-relaxed">${esc(b.text)}</p></div>`;
+      if (b.type === 'recap') return `<div class="rounded-xl border-l-4 border-emerald-400 bg-emerald-50 p-3 my-3"><p class="text-xs font-black uppercase tracking-wider text-emerald-600 mb-1">✅ À retenir</p><p class="text-sm text-stone-700 leading-relaxed">${esc(b.text)}</p></div>`;
+      if (b.type === 'exercise') return `<div class="rounded-xl border-l-4 border-blue-400 bg-blue-50 p-3 my-3"><p class="text-xs font-black uppercase tracking-wider text-blue-600 mb-1">🎯 Exercice pratique</p><p class="text-sm text-stone-700 leading-relaxed">${esc(b.text)}</p></div>`;
+      if (b.type === 'heading') return `<h3 class="font-extrabold text-stone-800 text-base mt-5 mb-1">${esc(b.text)}</h3>`;
       return `<p class="text-sm text-stone-700 leading-relaxed my-3">${esc(b.text)}</p>`;
     };
 
