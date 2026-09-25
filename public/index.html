@@ -173,23 +173,26 @@
 
     <!-- Navigation basse -->
     <nav class="fixed bottom-0 inset-x-0 z-40 sm:bottom-4 sm:flex sm:justify-center sm:px-4">
-      <div class="bg-white border-t border-stone-200 sm:border sm:rounded-2xl relative grid grid-cols-5 sm:flex sm:gap-1 px-1 pt-1.5 pb-safe sm:p-1.5 shadow-[0_-2px_12px_rgba(0,0,0,.05)] sm:shadow-[0_8px_24px_rgba(0,0,0,.1)]">
+      <div class="bg-white border-t border-stone-200 sm:border sm:rounded-2xl relative grid grid-cols-6 sm:flex sm:gap-1 px-0.5 pt-1.5 pb-safe sm:p-1.5 shadow-[0_-2px_12px_rgba(0,0,0,.05)] sm:shadow-[0_8px_24px_rgba(0,0,0,.1)]">
         <span id="nav-indicator" class="hidden sm:block absolute top-1.5 bottom-1.5 rounded-xl bg-orange-500 transition-all duration-500 ease-[cubic-bezier(.22,1,.36,1)]"></span>
-        <button data-tab="profile" class="nav-btn press relative z-10 flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-2 py-1 sm:px-5 sm:py-3 rounded-xl font-semibold text-[10px] sm:text-sm transition-colors duration-300">
-          <span class="nav-ico grid place-items-center w-9 h-7 sm:w-auto sm:h-auto rounded-full transition-all duration-300"><i data-lucide="user-round" class="w-5 h-5"></i></span><span class="truncate">Profil</span>
+        <button data-tab="profile" class="nav-btn press relative z-10 flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-2 py-1 sm:px-5 sm:py-3 rounded-xl font-semibold text-[9px] sm:text-sm transition-colors duration-300">
+          <span class="nav-ico grid place-items-center w-8 h-7 sm:w-auto sm:h-auto rounded-full transition-all duration-300"><i data-lucide="user-round" class="w-5 h-5"></i></span><span class="truncate">Profil</span>
         </button>
-        <button data-tab="dailies" class="nav-btn press relative z-10 flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-2 py-1 sm:px-5 sm:py-3 rounded-xl font-semibold text-[10px] sm:text-sm transition-colors duration-300">
-          <span class="nav-ico relative grid place-items-center w-9 h-7 sm:w-auto sm:h-auto rounded-full transition-all duration-300"><i data-lucide="zap" class="w-5 h-5"></i>
+        <button data-tab="dailies" class="nav-btn press relative z-10 flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-2 py-1 sm:px-5 sm:py-3 rounded-xl font-semibold text-[9px] sm:text-sm transition-colors duration-300">
+          <span class="nav-ico relative grid place-items-center w-8 h-7 sm:w-auto sm:h-auto rounded-full transition-all duration-300"><i data-lucide="zap" class="w-5 h-5"></i>
             <span id="nav-dailies-dot" class="hidden absolute top-0 right-1 sm:-top-1 sm:-right-1 w-2 h-2 rounded-full bg-orange-500"></span></span><span class="truncate">Dailies</span>
         </button>
-        <button data-tab="recipes" class="nav-btn press relative z-10 flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-2 py-1 sm:px-5 sm:py-3 rounded-xl font-semibold text-[10px] sm:text-sm transition-colors duration-300">
-          <span class="nav-ico grid place-items-center w-9 h-7 sm:w-auto sm:h-auto rounded-full transition-all duration-300"><i data-lucide="book-open" class="w-5 h-5"></i></span><span class="truncate">Recettes</span>
+        <button data-tab="recipes" class="nav-btn press relative z-10 flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-2 py-1 sm:px-5 sm:py-3 rounded-xl font-semibold text-[9px] sm:text-sm transition-colors duration-300">
+          <span class="nav-ico grid place-items-center w-8 h-7 sm:w-auto sm:h-auto rounded-full transition-all duration-300"><i data-lucide="book-open" class="w-5 h-5"></i></span><span class="truncate">Recettes</span>
         </button>
-        <button data-tab="lessons" class="nav-btn press relative z-10 flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-2 py-1 sm:px-5 sm:py-3 rounded-xl font-semibold text-[10px] sm:text-sm transition-colors duration-300">
-          <span class="nav-ico grid place-items-center w-9 h-7 sm:w-auto sm:h-auto rounded-full transition-all duration-300"><i data-lucide="graduation-cap" class="w-5 h-5"></i></span><span class="truncate">Leçons</span>
+        <button data-tab="lessons" class="nav-btn press relative z-10 flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-2 py-1 sm:px-5 sm:py-3 rounded-xl font-semibold text-[9px] sm:text-sm transition-colors duration-300">
+          <span class="nav-ico grid place-items-center w-8 h-7 sm:w-auto sm:h-auto rounded-full transition-all duration-300"><i data-lucide="graduation-cap" class="w-5 h-5"></i></span><span class="truncate">Leçons</span>
         </button>
-        <button data-tab="ranked" class="nav-btn press relative z-10 flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-2 py-1 sm:px-5 sm:py-3 rounded-xl font-semibold text-[10px] sm:text-sm transition-colors duration-300">
-          <span class="nav-ico grid place-items-center w-9 h-7 sm:w-auto sm:h-auto rounded-full transition-all duration-300"><i data-lucide="trophy" class="w-5 h-5"></i></span><span class="truncate">Classement</span>
+        <button data-tab="ranked" class="nav-btn press relative z-10 flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-2 py-1 sm:px-5 sm:py-3 rounded-xl font-semibold text-[9px] sm:text-sm transition-colors duration-300">
+          <span class="nav-ico grid place-items-center w-8 h-7 sm:w-auto sm:h-auto rounded-full transition-all duration-300"><i data-lucide="trophy" class="w-5 h-5"></i></span><span class="truncate">Classement</span>
+        </button>
+        <button data-tab="pro" class="nav-btn press relative z-10 flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-2 py-1 sm:px-5 sm:py-3 rounded-xl font-semibold text-[9px] sm:text-sm transition-colors duration-300">
+          <span class="nav-ico grid place-items-center w-8 h-7 sm:w-auto sm:h-auto rounded-full transition-all duration-300"><i data-lucide="star" class="w-5 h-5"></i></span><span class="truncate">Pro</span>
         </button>
       </div>
     </nav>

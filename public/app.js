@@ -577,13 +577,13 @@
   }
 
   function setTab(tab, { push = true } = {}) {
-    if (!['profile', 'dailies', 'recipes', 'lessons', 'ranked'].includes(tab)) tab = 'profile';
+    if (!['profile', 'dailies', 'recipes', 'lessons', 'ranked', 'pro'].includes(tab)) tab = 'profile';
     const changed = state.tab !== tab;
     state.tab = tab;
     if (push) history.replaceState(null, '', `#${tab}`);
     moveIndicator();
     if (changed) window.scrollTo({ top: 0 });
-    ({ profile: renderProfile, dailies: renderDailies, recipes: renderRecipes, lessons: renderLessons, ranked: renderRanked })[tab]();
+    ({ profile: renderProfile, dailies: renderDailies, recipes: renderRecipes, lessons: renderLessons, ranked: renderRanked, pro: renderPro })[tab]();
   }
 
   // ===========================================================================
@@ -1880,6 +1880,96 @@
       toast('Recette supprimée', { icon: 'trash-2', tone: 'stone' });
       renderMyRecipesSub();
     } catch (err) { toast(err.message, { icon: 'alert-triangle', tone: 'rose' }); }
+  }
+
+  // ===========================================================================
+  // Onglet PRO
+  // ===========================================================================
+  function renderPro() {
+    const p = state.profile;
+    const isPro = p?.isPro;
+    if (isPro) {
+      app.innerHTML = `
+      <div class="rise max-w-lg mx-auto pt-6 pb-10 text-center space-y-6">
+        <div class="text-6xl">⭐</div>
+        <div>
+          <h1 class="font-display text-3xl font-bold text-stone-800">Tu es Pro !</h1>
+          <p class="mt-2 text-stone-500">Accès illimité à toutes les fonctionnalités.</p>
+        </div>
+        <div class="glass rounded-2xl p-5 text-left space-y-3">
+          ${[
+            ['graduation-cap', 'Toutes les leçons débloquées', 'Sans gemmes, sans limite'],
+            ['star',           'Badge Pro ⭐ sur ton profil',  'Tu brilles dans le classement'],
+            ['zap',            'Nouvelles leçons en avant-première', 'Accès prioritaire au contenu'],
+            ['gem',            'Gemmes offerts chaque mois',   '50 💎 crédités automatiquement'],
+          ].map(([ic, title, sub]) => `
+            <div class="flex items-start gap-3">
+              <span class="mt-0.5 w-8 h-8 rounded-xl bg-orange-50 border border-orange-200 grid place-items-center shrink-0">
+                <i data-lucide="${ic}" class="w-4 h-4 text-orange-500"></i>
+              </span>
+              <div><p class="font-semibold text-stone-800 text-sm">${title}</p><p class="text-xs text-stone-400">${sub}</p></div>
+            </div>`).join('')}
+        </div>
+      </div>`;
+      icons();
+      return;
+    }
+    app.innerHTML = `
+    <div class="rise max-w-lg mx-auto pt-6 pb-10 space-y-6">
+      <div class="text-center space-y-2">
+        <div class="text-5xl">⭐</div>
+        <h1 class="font-display text-3xl font-bold text-stone-800">Passer Pro</h1>
+        <p class="text-stone-500 text-sm">Débloque tout CulinaRPG sans limite.</p>
+      </div>
+
+      <div class="glass rounded-2xl p-5 space-y-3">
+        ${[
+          ['graduation-cap', 'Toutes les leçons débloquées',       'Plus de 20 leçons premium sans payer de gemmes'],
+          ['star',           'Badge Pro ⭐ sur ton profil',         'Montre ta passion dans le classement'],
+          ['zap',            'Nouvelles leçons en avant-première',  'Contenu exclusif avant tout le monde'],
+          ['gem',            '50 gemmes offerts chaque mois',       'Pour débloquer encore plus'],
+        ].map(([ic, title, sub]) => `
+          <div class="flex items-start gap-3">
+            <span class="mt-0.5 w-8 h-8 rounded-xl bg-orange-50 border border-orange-200 grid place-items-center shrink-0">
+              <i data-lucide="${ic}" class="w-4 h-4 text-orange-500"></i>
+            </span>
+            <div><p class="font-semibold text-stone-800 text-sm">${title}</p><p class="text-xs text-stone-400">${sub}</p></div>
+          </div>`).join('')}
+      </div>
+
+      <div class="space-y-3">
+        <button data-pro-plan="annual" class="pro-subscribe w-full press rounded-2xl p-4 bg-gradient-to-r from-orange-500 to-amber-500 text-white text-center shadow-lg hover:shadow-xl transition-shadow">
+          <div class="font-bold text-lg">Pro annuel</div>
+          <div class="text-orange-100 text-sm">29,99 € / an · soit 2,50 € / mois</div>
+          <div class="mt-1 inline-block text-[11px] font-bold bg-white/20 rounded-full px-2 py-0.5">Meilleure offre 🔥</div>
+        </button>
+        <button data-pro-plan="monthly" class="pro-subscribe w-full press rounded-2xl p-4 glass text-center hover:border-orange-300 transition-colors">
+          <div class="font-bold text-stone-800">Pro mensuel</div>
+          <div class="text-stone-500 text-sm">3,99 € / mois</div>
+        </button>
+      </div>
+
+      <p class="text-center text-xs text-stone-400">Résiliable à tout moment · Paiement sécurisé Stripe</p>
+    </div>`;
+    icons();
+
+    app.querySelectorAll('.pro-subscribe').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const plan = btn.dataset.proPlan;
+        btn.disabled = true; btn.style.opacity = '0.6';
+        try {
+          const res = await api('/api/stripe/checkout/pro', { method: 'POST', body: { plan } });
+          if (res.url) { window.location.href = res.url; return; }
+          if (state.profile) { state.profile.isPro = true; }
+          haptic([20, 30, 20]); fx.fireworks(2000);
+          toast('Bienvenue dans le club Pro ⭐ !', { icon: 'star', tone: 'emerald' });
+          renderPro();
+        } catch (err) {
+          toast(err.message, { icon: 'alert-triangle', tone: 'rose' });
+          btn.disabled = false; btn.style.opacity = '';
+        }
+      });
+    });
   }
 
   // ===========================================================================

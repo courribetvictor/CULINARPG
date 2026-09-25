@@ -786,6 +786,17 @@ async function fulfillLesson(userId, lesson) {
   return grantXp(userId, { [lesson.skill]: lesson.xpReward });
 }
 
+// Helper : crée une session Stripe et renvoie { url } ou une erreur lisible
+async function stripeSession(params, res, createFn) {
+  try {
+    const session = await createFn(params);
+    return res.json({ url: session.url });
+  } catch (err) {
+    console.error('[Stripe]', err.message);
+    return res.status(402).json({ error: err.message || 'Erreur Stripe' });
+  }
+}
+
 // POST /api/stripe/checkout/gems
 app.post('/api/stripe/checkout/gems', requireAuth, wrap(async (req, res) => {
   const pack = GEM_PACKS[req.body?.pack];
@@ -794,14 +805,13 @@ app.post('/api/stripe/checkout/gems', requireAuth, wrap(async (req, res) => {
     const result = await fulfillGems(req.user.id, pack);
     return res.json({ simulated: true, ...result });
   }
-  const session = await stripe.checkout.sessions.create({
+  return stripeSession({}, res, () => stripe.checkout.sessions.create({
     mode: 'payment',
     line_items: [{ quantity: 1, price_data: { currency: 'eur', unit_amount: pack.unitAmount, product_data: { name: `CulinaRPG · ${pack.label}`, description: `${pack.gems} gemmes pour débloquer des leçons premium` } } }],
     metadata: { type: 'gems', userId: String(req.user.id), gemPack: req.body.pack, gemAmount: String(pack.gems) },
     success_url: `${APP_URL}/?payment=success&type=gems&earned=${pack.gems}`,
     cancel_url: `${APP_URL}/#profile`,
-  });
-  res.json({ url: session.url });
+  }));
 }));
 
 // POST /api/stripe/checkout/pro
@@ -811,14 +821,13 @@ app.post('/api/stripe/checkout/pro', requireAuth, wrap(async (req, res) => {
     await fulfillPro(req.user.id);
     return res.json({ simulated: true, isPro: true });
   }
-  const session = await stripe.checkout.sessions.create({
+  return stripeSession({}, res, () => stripe.checkout.sessions.create({
     mode: 'subscription',
     line_items: [{ quantity: 1, price_data: { currency: 'eur', unit_amount: plan.unitAmount, recurring: { interval: plan.interval }, product_data: { name: `CulinaRPG Pro · ${plan.label}`, description: 'Accès illimité à toutes les leçons et fonctionnalités avancées' } } }],
     metadata: { type: 'pro', userId: String(req.user.id), plan: req.body?.plan || 'annual' },
     success_url: `${APP_URL}/?payment=success&type=pro`,
-    cancel_url: `${APP_URL}/#lessons`,
-  });
-  res.json({ url: session.url });
+    cancel_url: `${APP_URL}/#pro`,
+  }));
 }));
 
 // POST /api/stripe/checkout/lesson
@@ -832,14 +841,13 @@ app.post('/api/stripe/checkout/lesson', requireAuth, wrap(async (req, res) => {
   }
   const existing = await prisma.userLessonUnlock.findUnique({ where: { userId_lessonId: { userId: req.user.id, lessonId: lesson.id } } });
   if (existing) return res.status(409).json({ error: 'Leçon déjà débloquée' });
-  const session = await stripe.checkout.sessions.create({
+  return stripeSession({}, res, () => stripe.checkout.sessions.create({
     mode: 'payment',
     line_items: [{ quantity: 1, price_data: { currency: 'eur', unit_amount: 99, product_data: { name: `CulinaRPG · Leçon : ${lesson.title}`, description: lesson.description } } }],
     metadata: { type: 'lesson', userId: String(req.user.id), lessonId: String(lesson.id), lessonSkill: lesson.skill, lessonXp: String(lesson.xpReward) },
     success_url: `${APP_URL}/?payment=success&type=lesson`,
     cancel_url: `${APP_URL}/#lessons`,
-  });
-  res.json({ url: session.url });
+  }));
 }));
 
 // Backward-compat simulation aliases (utilisés quand Stripe n'est pas configuré)
