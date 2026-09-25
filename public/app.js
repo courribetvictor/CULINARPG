@@ -547,12 +547,18 @@
     state.profile = await api('/api/user/profile');
     state.user = { ...state.user, ...state.profile };
     renderHeader();
+    updateFriendsDot();
     return state.profile;
   }
 
   function updateDailyDot() {
     const d = state.dailies;
     if (d) $('#nav-dailies-dot').classList.toggle('hidden', d.completedCount >= d.totalCount);
+  }
+
+  function updateFriendsDot() {
+    const count = state.profile?.pendingFriendsCount || 0;
+    $('#nav-friends-dot')?.classList.toggle('hidden', count === 0);
   }
 
   // ---------------------------------------------------------------------------
@@ -577,13 +583,13 @@
   }
 
   function setTab(tab, { push = true } = {}) {
-    if (!['profile', 'dailies', 'recipes', 'lessons', 'ranked', 'pro'].includes(tab)) tab = 'profile';
+    if (!['profile', 'dailies', 'recipes', 'lessons', 'ranked', 'friends', 'pro'].includes(tab)) tab = 'profile';
     const changed = state.tab !== tab;
     state.tab = tab;
     if (push) history.replaceState(null, '', `#${tab}`);
     moveIndicator();
     if (changed) window.scrollTo({ top: 0 });
-    ({ profile: renderProfile, dailies: renderDailies, recipes: renderRecipes, lessons: renderLessons, ranked: renderRanked, pro: renderPro })[tab]();
+    ({ profile: renderProfile, dailies: renderDailies, recipes: renderRecipes, lessons: renderLessons, ranked: renderRanked, friends: renderFriends, pro: renderPro })[tab]();
   }
 
   // ===========================================================================
@@ -1544,7 +1550,7 @@
               ${data.leaderboard.slice(0, 20).map((p) => {
                 const l = p.league;
                 const isMe = p.id === me.id;
-                return `<div class="flex items-center gap-3 px-4 py-3 ${isMe ? 'bg-orange-50' : 'hover:bg-stone-50'} transition-colors">
+                return `<div data-open-profile="${esc(p.username)}" class="flex items-center gap-3 px-4 py-3 ${isMe ? 'bg-orange-50' : 'hover:bg-stone-50 cursor-pointer'} transition-colors">
                   <div class="w-7 text-center font-extrabold text-${p.rank <= 3 ? 'amber-500' : 'stone-400'} tabular-nums text-sm">${p.rank <= 3 ? ['🥇', '🥈', '🥉'][p.rank - 1] : `#${p.rank}`}</div>
                   <div class="w-9 h-9 rounded-full overflow-hidden bg-gradient-to-br ${p.avatarColor === 'violet' ? 'from-violet-500 to-fuchsia-500' : p.avatarColor === 'emerald' ? 'from-emerald-400 to-teal-600' : p.avatarColor === 'amber' ? 'from-amber-400 to-orange-600' : p.avatarColor === 'cyan' ? 'from-cyan-400 to-blue-600' : p.avatarColor === 'pink' ? 'from-pink-400 to-rose-600' : 'from-slate-500 to-slate-800'} grid place-items-center text-sm shrink-0">
                     ${p.avatarImage ? `<img src="${esc(p.avatarImage)}" class="w-full h-full object-cover">` : esc(p.avatar || '🧑‍🍳')}
@@ -1883,6 +1889,204 @@
       state.myRecipes = null;
       toast('Recette supprimée', { icon: 'trash-2', tone: 'stone' });
       renderMyRecipesSub();
+    } catch (err) { toast(err.message, { icon: 'alert-triangle', tone: 'rose' }); }
+  }
+
+  // ===========================================================================
+  // Onglet AMIS
+  // ===========================================================================
+  function friendAvatarHtml(p) {
+    const grad = p.avatarColor === 'violet' ? 'from-violet-500 to-fuchsia-500' : p.avatarColor === 'emerald' ? 'from-emerald-400 to-teal-600' : p.avatarColor === 'amber' ? 'from-amber-400 to-orange-600' : p.avatarColor === 'cyan' ? 'from-cyan-400 to-blue-600' : p.avatarColor === 'pink' ? 'from-pink-400 to-rose-600' : 'from-slate-500 to-slate-800';
+    return p.avatarImage
+      ? `<img src="${esc(p.avatarImage)}" class="w-full h-full object-cover">`
+      : `<div class="w-full h-full rounded-full bg-gradient-to-br ${grad} grid place-items-center text-xl">${esc(p.avatar || '🧑‍🍳')}</div>`;
+  }
+
+  function friendCardHtml(p, actions = '') {
+    return `
+    <div class="glass rounded-2xl flex items-center gap-3 p-3 hover:shadow-md transition-shadow">
+      <div data-open-profile="${esc(p.username)}" class="w-11 h-11 shrink-0 rounded-full overflow-hidden cursor-pointer press">${friendAvatarHtml(p)}</div>
+      <div data-open-profile="${esc(p.username)}" class="flex-1 min-w-0 cursor-pointer">
+        <p class="font-bold text-stone-800 text-sm truncate">${esc(p.displayName)}${p.isPro ? ' <span class="text-amber-500">⭐</span>' : ''}</p>
+        <p class="text-xs text-stone-400">@${esc(p.username)} · Niv. ${p.level}</p>
+      </div>
+      ${actions}
+    </div>`;
+  }
+
+  async function renderFriends() {
+    app.innerHTML = `<div class="flex justify-center py-8"><i data-lucide="loader-circle" class="w-8 h-8 animate-spin text-orange-400"></i></div>`;
+    icons();
+    let data;
+    try { data = await api('/api/friends'); state.friendsData = data; }
+    catch (err) { app.innerHTML = emptyState('wifi-off', 'Chargement impossible', err.message); icons(); return; }
+
+    const { friends, pendingReceived, pendingSent } = data;
+    if (state.profile) { state.profile.pendingFriendsCount = pendingReceived.length; updateFriendsDot(); }
+
+    app.innerHTML = `
+    <div class="max-w-lg mx-auto space-y-5 rise pb-4">
+      ${sectionTitle('users', 'Amis', 'Retrouve tes amis et défie-les.')}
+
+      <div class="glass rounded-2xl p-3 flex gap-2">
+        <input id="friend-search" type="text" placeholder="Rechercher un joueur par pseudo…" class="flex-1 bg-transparent text-sm outline-none text-stone-800 placeholder-stone-400 min-w-0" autocomplete="off" autocorrect="off" />
+        <button id="friend-search-btn" class="press shrink-0 w-9 h-9 rounded-xl bg-orange-500 grid place-items-center text-white hover:bg-orange-600 transition-colors">
+          <i data-lucide="search" class="w-4 h-4"></i>
+        </button>
+      </div>
+
+      ${pendingReceived.length ? `
+      <section>
+        <h3 class="font-extrabold text-stone-800 text-sm mb-3 flex items-center gap-2">
+          <span class="w-5 h-5 rounded-full bg-rose-500 text-white text-[10px] font-black grid place-items-center">${pendingReceived.length}</span>
+          Demandes reçues
+        </h3>
+        <div class="space-y-2">
+          ${pendingReceived.map((p) => friendCardHtml(p, `
+            <div class="flex gap-1.5 shrink-0">
+              <button data-friend-accept="${esc(p.username)}" class="press w-9 h-9 rounded-xl bg-emerald-500 grid place-items-center text-white hover:bg-emerald-600 transition-colors"><i data-lucide="check" class="w-4 h-4"></i></button>
+              <button data-friend-decline="${esc(p.username)}" class="press w-9 h-9 rounded-xl bg-stone-100 border border-stone-200 grid place-items-center text-stone-500 hover:bg-rose-50 hover:border-rose-200 hover:text-rose-500 transition-colors"><i data-lucide="x" class="w-4 h-4"></i></button>
+            </div>`)).join('')}
+        </div>
+      </section>` : ''}
+
+      ${pendingSent.length ? `
+      <section>
+        <h3 class="font-bold text-stone-500 text-sm mb-3">Demandes envoyées</h3>
+        <div class="space-y-2">
+          ${pendingSent.map((p) => friendCardHtml(p, `
+            <button data-friend-cancel="${esc(p.username)}" class="press shrink-0 rounded-xl px-3 py-2 text-xs font-bold bg-stone-100 border border-stone-200 text-stone-500 hover:bg-rose-50 hover:text-rose-500 transition-colors">Annuler</button>
+          `)).join('')}
+        </div>
+      </section>` : ''}
+
+      <section>
+        <h3 class="font-bold text-stone-700 text-sm mb-3 flex items-center gap-2">
+          <i data-lucide="users" class="w-4 h-4 text-orange-500"></i>
+          ${friends.length ? `${friends.length} ami${friends.length > 1 ? 's' : ''}` : 'Mes amis'}
+        </h3>
+        ${friends.length ? `
+        <div class="space-y-2">
+          ${friends.map((p, i) => friendCardHtml(p, `<span class="text-xs font-extrabold text-stone-400 shrink-0 tabular-nums">#${i + 1}</span>`)).join('')}
+        </div>` : `
+        <div class="glass rounded-2xl p-8 text-center text-stone-400">
+          <i data-lucide="users" class="w-10 h-10 mx-auto mb-3 opacity-30"></i>
+          <p class="text-sm font-semibold">Pas encore d'amis</p>
+          <p class="text-xs mt-1">Recherche un joueur par pseudo pour lui envoyer une demande.</p>
+        </div>`}
+      </section>
+    </div>`;
+    icons();
+
+    $('#friend-search-btn').addEventListener('click', () => {
+      const q = $('#friend-search').value.trim();
+      if (q) openPublicProfile(q);
+    });
+    $('#friend-search').addEventListener('keydown', (e) => { if (e.key === 'Enter') { const q = e.target.value.trim(); if (q) openPublicProfile(q); } });
+  }
+
+  async function openPublicProfile(username) {
+    let p;
+    try { p = await api(`/api/users/${encodeURIComponent(username.toLowerCase())}`); }
+    catch (err) { toast(err.message || 'Joueur introuvable', { icon: 'user-x', tone: 'rose' }); return; }
+
+    const isMe = p.id === state.profile?.id;
+    const m = SKILL_META;
+    const diff = (d) => '★'.repeat(d) + '☆'.repeat(3 - d);
+
+    const friendBtn = () => {
+      if (isMe) return '';
+      if (p.friendStatus === 'friends') return `<button data-friend-remove="${esc(p.username)}" class="press flex-1 rounded-2xl py-3 text-sm font-bold bg-stone-100 border border-stone-200 text-stone-600 hover:bg-rose-50 hover:text-rose-500 transition-colors">Retirer des amis</button>`;
+      if (p.friendStatus === 'pending_sent') return `<button data-friend-cancel="${esc(p.username)}" class="press flex-1 rounded-2xl py-3 text-sm font-bold bg-stone-100 border border-stone-200 text-stone-500 transition-colors cursor-default">Demande envoyée…</button>`;
+      if (p.friendStatus === 'pending_received') return `<button data-friend-accept="${esc(p.username)}" class="press flex-1 rounded-2xl py-3 text-sm font-bold bg-emerald-500 text-white hover:bg-emerald-600 transition-colors">Accepter la demande</button>`;
+      return `<button data-friend-add="${esc(p.username)}" class="press flex-1 rounded-2xl py-3 text-sm font-bold bg-orange-500 text-white hover:bg-orange-600 transition-colors shadow-[0_2px_8px_rgba(249,115,22,.35)]"><i data-lucide="user-plus" class="w-4 h-4 inline -mt-0.5 mr-1"></i>Ajouter en ami</button>`;
+    };
+
+    const grad = p.avatarColor === 'violet' ? 'from-violet-500 to-fuchsia-500' : p.avatarColor === 'emerald' ? 'from-emerald-400 to-teal-600' : p.avatarColor === 'amber' ? 'from-amber-400 to-orange-600' : p.avatarColor === 'cyan' ? 'from-cyan-400 to-blue-600' : p.avatarColor === 'pink' ? 'from-pink-400 to-rose-600' : 'from-slate-500 to-slate-800';
+    const avatarHtml = p.avatarImage ? `<img src="${esc(p.avatarImage)}" class="w-full h-full object-cover rounded-full">` : `<div class="w-full h-full rounded-full bg-gradient-to-br ${grad} grid place-items-center text-4xl">${esc(p.avatar || '🧑‍🍳')}</div>`;
+
+    openSheet(`
+      <div class="p-5 pb-2 space-y-5">
+        <div class="flex items-center gap-4">
+          <div class="w-20 h-20 shrink-0 rounded-full overflow-hidden shadow-md">${avatarHtml}</div>
+          <div class="flex-1 min-w-0">
+            <h2 class="text-2xl font-extrabold tracking-tight text-stone-800 truncate">${esc(p.displayName)}${p.isPro ? ' <span class="text-amber-500">⭐</span>' : ''}</h2>
+            <p class="text-sm text-stone-400">@${esc(p.username)}</p>
+            <div class="flex flex-wrap gap-1.5 mt-2">
+              <span class="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-bold bg-orange-50 border border-orange-200 text-orange-700">Niv. ${p.level} · ${esc(p.title)}</span>
+              ${p.chefClass && m[p.chefClass] ? `<span class="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-extrabold bg-gradient-to-r ${m[p.chefClass].grad} text-white">${m[p.chefClass].emoji}</span>` : ''}
+            </div>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-2">
+          <div class="glass rounded-2xl p-3 text-center">
+            <div class="text-xl font-extrabold text-stone-800">${p.stats.recipesCooked}</div>
+            <div class="text-[10px] uppercase tracking-wider text-stone-400 font-bold">Recettes</div>
+          </div>
+          <div class="glass rounded-2xl p-3 text-center">
+            <div class="text-xl font-extrabold text-stone-800">${p.stats.bestStreak} j</div>
+            <div class="text-[10px] uppercase tracking-wider text-stone-400 font-bold">Meilleur streak</div>
+          </div>
+        </div>
+
+        <div>
+          <h3 class="font-bold text-stone-700 text-sm mb-2">Compétences</h3>
+          <div class="space-y-2">
+            ${p.skills.map((s) => {
+              const sk = m[s.skill];
+              return `<div class="flex items-center gap-3">
+                <span class="w-7 h-7 shrink-0 rounded-lg bg-gradient-to-br ${sk.grad} grid place-items-center text-white"><i data-lucide="${sk.icon}" class="w-3.5 h-3.5"></i></span>
+                <div class="flex-1 min-w-0">
+                  <div class="flex justify-between text-xs font-semibold mb-1"><span class="text-stone-600">${sk.name}</span><span class="${sk.text}">Niv. ${s.level}</span></div>
+                  <div class="h-1.5 rounded-full bg-stone-100 overflow-hidden"><div class="h-full rounded-full bg-gradient-to-r ${sk.grad}" style="width:${s.percent}%"></div></div>
+                </div>
+              </div>`;
+            }).join('')}
+          </div>
+        </div>
+
+        <div>
+          <h3 class="font-bold text-stone-700 text-sm mb-2">Badges débloqués</h3>
+          <div class="flex flex-wrap gap-2">
+            ${p.badges.filter((b) => b.unlocked).map((b) => `<span class="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-bold bg-amber-50 border border-amber-200 text-amber-700"><i data-lucide="${b.icon}" class="w-3 h-3"></i>${esc(b.name)}</span>`).join('') || '<span class="text-xs text-stone-400">Aucun badge encore</span>'}
+          </div>
+        </div>
+      </div>
+      ${!isMe ? `<div class="sticky bottom-0 p-4 pb-safe bg-gradient-to-t from-white via-white/95 to-transparent flex gap-2" id="profile-friend-actions">${friendBtn()}</div>` : ''}
+    `);
+    icons();
+  }
+
+  async function handleFriendAdd(username) {
+    try {
+      await api(`/api/friends/${encodeURIComponent(username)}`, { method: 'POST' });
+      toast('Demande envoyée !', { icon: 'user-plus', tone: 'emerald' });
+      if (state.profile) state.profile.pendingFriendsCount = (state.profile.pendingFriendsCount || 0);
+      state.friendsData = null;
+      openPublicProfile(username);
+    } catch (err) { toast(err.message, { icon: 'alert-triangle', tone: 'rose' }); }
+  }
+
+  async function handleFriendAccept(username) {
+    try {
+      await api(`/api/friends/${encodeURIComponent(username)}/accept`, { method: 'POST' });
+      toast('Ami ajouté !', { icon: 'users', tone: 'emerald' });
+      if (state.profile) state.profile.pendingFriendsCount = Math.max(0, (state.profile.pendingFriendsCount || 1) - 1);
+      updateFriendsDot();
+      state.friendsData = null;
+      if (state.tab === 'friends') renderFriends();
+      else closeSheet();
+    } catch (err) { toast(err.message, { icon: 'alert-triangle', tone: 'rose' }); }
+  }
+
+  async function handleFriendRemove(username) {
+    try {
+      await api(`/api/friends/${encodeURIComponent(username)}`, { method: 'DELETE' });
+      toast('Ami retiré', { icon: 'user-minus', tone: 'stone' });
+      state.friendsData = null;
+      if (state.tab === 'friends') renderFriends();
+      else closeSheet();
     } catch (err) { toast(err.message, { icon: 'alert-triangle', tone: 'rose' }); }
   }
 
@@ -2403,6 +2607,20 @@
     if (questLog) { e.stopPropagation(); handleQuestLog(questLog.dataset.questLog); return; }
     const questDelete = t.closest('[data-quest-delete]');
     if (questDelete) { e.stopPropagation(); handleQuestDelete(questDelete.dataset.questDelete); return; }
+
+    // Profils & Amis
+    const openProfile = t.closest('[data-open-profile]');
+    if (openProfile) { e.stopPropagation(); openPublicProfile(openProfile.dataset.openProfile); return; }
+    const friendAdd = t.closest('[data-friend-add]');
+    if (friendAdd) { e.stopPropagation(); handleFriendAdd(friendAdd.dataset.friendAdd); return; }
+    const friendAccept = t.closest('[data-friend-accept]');
+    if (friendAccept) { e.stopPropagation(); handleFriendAccept(friendAccept.dataset.friendAccept); return; }
+    const friendDecline = t.closest('[data-friend-decline]');
+    if (friendDecline) { e.stopPropagation(); handleFriendRemove(friendDecline.dataset.friendDecline); return; }
+    const friendCancel = t.closest('[data-friend-cancel]');
+    if (friendCancel) { e.stopPropagation(); handleFriendRemove(friendCancel.dataset.friendCancel); return; }
+    const friendRemove = t.closest('[data-friend-remove]');
+    if (friendRemove) { e.stopPropagation(); handleFriendRemove(friendRemove.dataset.friendRemove); return; }
   });
 
   document.addEventListener('keydown', (e) => {
