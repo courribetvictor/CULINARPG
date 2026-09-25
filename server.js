@@ -11,6 +11,11 @@ const auth = require('./lib/auth');
 const { normalizeText } = require('./lib/text');
 const { resolveRecipeImages } = require('./lib/images');
 
+// Neon cold-start : on ajoute connect_timeout si absent
+const _dbUrl = (process.env.DATABASE_URL || '');
+if (_dbUrl && !_dbUrl.includes('connect_timeout')) {
+  process.env.DATABASE_URL = _dbUrl + (_dbUrl.includes('?') ? '&' : '?') + 'connect_timeout=30';
+}
 const prisma = new PrismaClient();
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
@@ -347,6 +352,8 @@ app.get('/api/user/profile', wrap(async (req, res) => {
     }),
   ]);
 
+  const pendingFriendsCount = await prisma.friendship.count({ where: { addresseeId: user.id, status: 'pending' } });
+
   res.json({
     ...publicUser(user, skills),
     totalXp: user.totalXp,
@@ -359,6 +366,7 @@ app.get('/api/user/profile', wrap(async (req, res) => {
     stats: { recipesCooked, uniqueRecipes, dailiesDone },
     badges: computeBadges({ user, skills, recipesCooked, uniqueRecipes, dailiesDone, bakingCooks }),
     recent: recent.map((c) => ({ id: c.id, xpGained: c.xpGained, cookedAt: c.cookedAt, recipe: c.recipe })),
+    pendingFriendsCount,
   });
 }));
 
@@ -657,6 +665,99 @@ app.get('/api/ranked', wrap(async (req, res) => {
     leagues: LEAGUES,
     season: { number: 1, name: 'Saison des Premières Flammes', endDate: '2025-12-31' },
   });
+}));
+
+// ---------------------------------------------------------------------------
+// Profil public & Amis
+// ---------------------------------------------------------------------------
+const FRIEND_USER_SELECT = { id: true, username: true, displayName: true, avatar: true, avatarColor: true, avatarImage: true, totalXp: true, isPro: true, chefClass: true };
+
+app.get('/api/users/:username', wrap(async (req, res) => {
+  const target = await prisma.user.findUnique({
+    where: { username: String(req.params.username).toLowerCase() },
+    include: { skills: true },
+  });
+  if (!target) return res.status(404).json({ error: 'Joueur introuvable' });
+
+  const skills = SKILLS.map((skill) => target.skills.find((s) => s.skill === skill) || { skill, xp: 0 });
+  const [recipesCooked, uniqueRecipes, dailiesDone, bakingCooks] = await Promise.all([
+    prisma.userRecipeCompletion.count({ where: { userId: target.id } }),
+    prisma.userRecipeCompletion.groupBy({ by: ['recipeId'], where: { userId: target.id } }).then((g) => g.length),
+    prisma.userDailyCompletion.count({ where: { userId: target.id } }),
+    prisma.userRecipeCompletion.count({ where: { userId: target.id, recipe: { category: { in: ['Desserts', 'Boulangerie', 'Dessert'] } } } }),
+  ]);
+
+  const friendship = await prisma.friendship.findFirst({
+    where: { OR: [{ requesterId: req.user.id, addresseeId: target.id }, { requesterId: target.id, addresseeId: req.user.id }] },
+  });
+  let friendStatus = 'none';
+  if (friendship) {
+    if (friendship.status === 'accepted') friendStatus = 'friends';
+    else if (friendship.requesterId === req.user.id) friendStatus = 'pending_sent';
+    else friendStatus = 'pending_received';
+  }
+
+  res.json({
+    id: target.id, username: target.username, displayName: target.displayName,
+    avatar: target.avatar, avatarColor: target.avatarColor, avatarImage: target.avatarImage,
+    chefClass: target.chefClass, isPro: target.isPro,
+    title: displayTitle(target, skills),
+    level: globalLevel(target.totalXp), totalXp: target.totalXp,
+    global: globalProgress(target.totalXp),
+    skills: skills.map((s) => ({ skill: s.skill, ...skillProgress(s.xp) })),
+    badges: computeBadges({ user: target, skills, recipesCooked, uniqueRecipes, dailiesDone, bakingCooks }),
+    stats: { recipesCooked, bestStreak: target.bestStreak },
+    friendStatus,
+  });
+}));
+
+app.get('/api/friends', wrap(async (req, res) => {
+  const friendships = await prisma.friendship.findMany({
+    where: { OR: [{ requesterId: req.user.id }, { addresseeId: req.user.id }] },
+    include: { requester: { select: FRIEND_USER_SELECT }, addressee: { select: FRIEND_USER_SELECT } },
+    orderBy: { createdAt: 'desc' },
+  });
+  const friends = [], pendingReceived = [], pendingSent = [];
+  for (const f of friendships) {
+    const other = f.requesterId === req.user.id ? f.addressee : f.requester;
+    const enriched = { ...other, level: globalLevel(other.totalXp) };
+    if (f.status === 'accepted') friends.push(enriched);
+    else if (f.requesterId === req.user.id) pendingSent.push(enriched);
+    else pendingReceived.push(enriched);
+  }
+  friends.sort((a, b) => b.totalXp - a.totalXp);
+  res.json({ friends, pendingReceived, pendingSent });
+}));
+
+app.post('/api/friends/:username', wrap(async (req, res) => {
+  const target = await prisma.user.findUnique({ where: { username: String(req.params.username).toLowerCase() } });
+  if (!target) return res.status(404).json({ error: 'Joueur introuvable' });
+  if (target.id === req.user.id) return res.status(400).json({ error: 'Tu ne peux pas t\'ajouter toi-même' });
+  const existing = await prisma.friendship.findFirst({
+    where: { OR: [{ requesterId: req.user.id, addresseeId: target.id }, { requesterId: target.id, addresseeId: req.user.id }] },
+  });
+  if (existing) return res.status(409).json({ error: 'Demande déjà existante' });
+  await prisma.friendship.create({ data: { requesterId: req.user.id, addresseeId: target.id } });
+  res.json({ ok: true });
+}));
+
+app.post('/api/friends/:username/accept', wrap(async (req, res) => {
+  const target = await prisma.user.findUnique({ where: { username: String(req.params.username).toLowerCase() } });
+  if (!target) return res.status(404).json({ error: 'Joueur introuvable' });
+  const f = await prisma.friendship.findFirst({ where: { requesterId: target.id, addresseeId: req.user.id, status: 'pending' } });
+  if (!f) return res.status(404).json({ error: 'Demande introuvable' });
+  await prisma.friendship.update({ where: { id: f.id }, data: { status: 'accepted' } });
+  res.json({ ok: true });
+}));
+
+app.delete('/api/friends/:username', wrap(async (req, res) => {
+  const target = await prisma.user.findUnique({ where: { username: String(req.params.username).toLowerCase() } });
+  if (!target) return res.status(404).json({ error: 'Joueur introuvable' });
+  const deleted = await prisma.friendship.deleteMany({
+    where: { OR: [{ requesterId: req.user.id, addresseeId: target.id }, { requesterId: target.id, addresseeId: req.user.id }] },
+  });
+  if (!deleted.count) return res.status(404).json({ error: 'Relation introuvable' });
+  res.json({ ok: true });
 }));
 
 // ---------------------------------------------------------------------------
@@ -1173,7 +1274,8 @@ async function grantProToFixedAccounts() {
 }
 
 app.listen(PORT, () => {
-  console.log(`🔥 CulinaRPG en ligne sur http://localhost:${PORT}`);
+  const dbHost = (process.env.DATABASE_URL || 'sqlite').replace(/\/\/[^@]+@/, '//***@').split('/')[2] || 'local';
+  console.log(`🔥 CulinaRPG en ligne sur http://localhost:${PORT} — DB: ${dbHost}`);
   seedLessons().catch(console.error);
   grantProToFixedAccounts().catch(console.error);
   if (process.env.RESOLVE_IMAGES_ON_START !== 'false') {
