@@ -722,13 +722,13 @@ app.get('/api/lessons', wrap(async (req, res) => {
     prisma.lesson.findMany({ orderBy: { order: 'asc' } }),
     prisma.userLessonUnlock.findMany({ where: { userId: req.user.id } }),
   ]);
-  const unlockedIds = new Set(unlocks.map((u) => u.lessonId));
+  const unlockMap = Object.fromEntries(unlocks.map((u) => [u.lessonId, u]));
   res.json(lessons.map((l) => ({
     id: l.id, slug: l.slug, title: l.title, description: l.description,
     category: l.category, skill: l.skill, difficulty: l.difficulty,
     icon: l.icon, gemCost: l.gemCost, xpReward: l.xpReward, order: l.order,
-    unlocked: l.gemCost === 0 || req.user.isPro || unlockedIds.has(l.id),
-    completed: unlockedIds.has(l.id),
+    unlocked: l.gemCost === 0 || req.user.isPro || !!unlockMap[l.id],
+    completed: !!unlockMap[l.id]?.completed,
   })));
 }));
 
@@ -738,14 +738,15 @@ app.get('/api/lessons/:id', wrap(async (req, res) => {
   const unlock = await prisma.userLessonUnlock.findUnique({ where: { userId_lessonId: { userId: req.user.id, lessonId: lesson.id } } });
   const accessible = lesson.gemCost === 0 || req.user.isPro || !!unlock;
   if (!accessible) return res.status(403).json({ error: 'Leçon verrouillée', gemCost: lesson.gemCost, gems: req.user.gems });
-  res.json({ ...lesson, content: JSON.parse(lesson.content), completed: !!unlock });
+  res.json({ ...lesson, content: JSON.parse(lesson.content), completed: !!unlock?.completed });
 }));
 
+// Déverrouille l'accès à une leçon (déduit les gemmes, pas d'XP)
 app.post('/api/lessons/:id/unlock', wrap(async (req, res) => {
   const lesson = await prisma.lesson.findUnique({ where: { id: Number(req.params.id) || 0 } });
   if (!lesson) return res.status(404).json({ error: 'Leçon introuvable' });
   const existing = await prisma.userLessonUnlock.findUnique({ where: { userId_lessonId: { userId: req.user.id, lessonId: lesson.id } } });
-  if (existing) return res.status(409).json({ error: 'Leçon déjà débloquée' });
+  if (existing) return res.json({ ok: true, alreadyUnlocked: true, gems: req.user.gems });
   if (lesson.gemCost > 0 && !req.user.isPro) {
     if (req.user.gems < lesson.gemCost) {
       return res.status(402).json({ error: `Gemmes insuffisantes (${req.user.gems}/${lesson.gemCost})`, gems: req.user.gems });
@@ -753,9 +754,25 @@ app.post('/api/lessons/:id/unlock', wrap(async (req, res) => {
     await prisma.user.update({ where: { id: req.user.id }, data: { gems: { decrement: lesson.gemCost } } });
   }
   await prisma.userLessonUnlock.create({ data: { userId: req.user.id, lessonId: lesson.id } });
-  const xpResult = await grantXp(req.user.id, { [lesson.skill]: lesson.xpReward });
   const updatedUser = await prisma.user.findUnique({ where: { id: req.user.id }, select: { gems: true } });
-  res.json({ ok: true, gems: updatedUser.gems, xpResult });
+  res.json({ ok: true, gems: updatedUser.gems });
+}));
+
+// Marque une leçon comme complétée et accorde l'XP
+app.post('/api/lessons/:id/complete', wrap(async (req, res) => {
+  const lesson = await prisma.lesson.findUnique({ where: { id: Number(req.params.id) || 0 } });
+  if (!lesson) return res.status(404).json({ error: 'Leçon introuvable' });
+  const unlock = await prisma.userLessonUnlock.findUnique({ where: { userId_lessonId: { userId: req.user.id, lessonId: lesson.id } } });
+  const accessible = lesson.gemCost === 0 || req.user.isPro || !!unlock;
+  if (!accessible) return res.status(403).json({ error: 'Leçon verrouillée' });
+  if (unlock?.completed) return res.status(409).json({ error: 'Leçon déjà complétée' });
+  if (!unlock) {
+    await prisma.userLessonUnlock.create({ data: { userId: req.user.id, lessonId: lesson.id, completed: true, completedAt: new Date() } });
+  } else {
+    await prisma.userLessonUnlock.update({ where: { userId_lessonId: { userId: req.user.id, lessonId: lesson.id } }, data: { completed: true, completedAt: new Date() } });
+  }
+  const xpResult = await grantXp(req.user.id, { [lesson.skill]: lesson.xpReward });
+  res.json({ ok: true, xpResult });
 }));
 
 // ---------------------------------------------------------------------------
@@ -782,8 +799,9 @@ async function fulfillPro(userId) {
 async function fulfillLesson(userId, lesson) {
   const exists = await prisma.userLessonUnlock.findUnique({ where: { userId_lessonId: { userId, lessonId: lesson.id } } });
   if (exists) return null;
+  // Juste déverrouiller l'accès — l'XP est accordé quand le joueur clique "J'ai compris !"
   await prisma.userLessonUnlock.create({ data: { userId, lessonId: lesson.id } });
-  return grantXp(userId, { [lesson.skill]: lesson.xpReward });
+  return { ok: true };
 }
 
 // Helper : crée une session Stripe et renvoie { url } ou une erreur lisible
@@ -835,9 +853,9 @@ app.post('/api/stripe/checkout/lesson', requireAuth, wrap(async (req, res) => {
   const lesson = await prisma.lesson.findUnique({ where: { id: Number(req.body?.lessonId) || 0 } });
   if (!lesson) return res.status(404).json({ error: 'Leçon introuvable' });
   if (!stripe) {
-    const xpResult = await fulfillLesson(req.user.id, lesson);
-    if (!xpResult) return res.status(409).json({ error: 'Leçon déjà débloquée' });
-    return res.json({ simulated: true, xpResult });
+    const result = await fulfillLesson(req.user.id, lesson);
+    if (!result) return res.status(409).json({ error: 'Leçon déjà débloquée' });
+    return res.json({ simulated: true });
   }
   const existing = await prisma.userLessonUnlock.findUnique({ where: { userId_lessonId: { userId: req.user.id, lessonId: lesson.id } } });
   if (existing) return res.status(409).json({ error: 'Leçon déjà débloquée' });

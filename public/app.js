@@ -1830,24 +1830,23 @@
     if (gems < gemCost) { toast(`Il te faut ${gemCost} 💎 pour débloquer cette leçon.`, { icon: 'gem', tone: 'rose' }); return; }
     try {
       const res = await api(`/api/lessons/${id}/unlock`, { method: 'POST' });
-      const xpEarned = res.xpResult?.xpGained || 0;
-      if (state.profile) { state.profile.gems = res.gems; renderHeader(); }
+      if (state.profile && res.gems !== undefined) { state.profile.gems = res.gems; renderHeader(); }
       state.lessons = null;
-      toast('Leçon débloquée ! +' + xpEarned + ' XP', { icon: 'check', tone: 'emerald' });
+      toast('Leçon débloquée ! Tu peux maintenant la consulter.', { icon: 'unlock', tone: 'emerald' });
       await loadProfile();
       renderLessons();
+      openLesson(id);
     } catch (err) { toast(err.message, { icon: 'alert-triangle', tone: 'rose' }); }
   }
 
   async function handleLessonComplete(id) {
     try {
-      const res = await api(`/api/lessons/${id}/unlock`, { method: 'POST' });
+      const res = await api(`/api/lessons/${id}/complete`, { method: 'POST' });
       const xpEarned = res.xpResult?.xpGained || 0;
-      if (state.profile && res.gems !== undefined) { state.profile.gems = res.gems; renderHeader(); }
       state.lessons = null;
       closeSheet();
       await loadProfile();
-      showRewardModal({ xpGained: xpEarned, gemsEarned: 0, rewards: res.xpResult?.rewards || {}, skillLevelUps: res.xpResult?.skillLevelUps || [], globalLevelUp: res.xpResult?.globalLevelUp || null, recipe: { name: 'Leçon complétée' } }, 'recipe');
+      showRewardModal({ xpGained: xpEarned, gemsEarned: 0, rewards: res.xpResult?.rewards || {}, skillLevelUps: res.xpResult?.skillLevelUps || [], globalLevelUp: res.xpResult?.globalLevelUp || null, recipe: { name: 'Leçon complétée !' } }, 'recipe');
     } catch (err) { toast(err.message, { icon: 'alert-triangle', tone: 'rose' }); }
   }
 
@@ -2109,18 +2108,12 @@
     try {
       const res = await api('/api/stripe/checkout/lesson', { method: 'POST', body: { lessonId: id } });
       if (res.url) { window.location.href = res.url; return; }
-      // Mode simulation (pas de clé Stripe)
-      const xpEarned = res.xpResult?.xpGained || 0;
+      // Mode simulation (pas de clé Stripe) : leçon débloquée, l'XP sera gagné à la complétion
       state.lessons = null;
-      closeSheet();
       await loadProfile();
-      showRewardModal({
-        xpGained: xpEarned, gemsEarned: 0,
-        rewards: res.xpResult?.rewards || {},
-        skillLevelUps: res.xpResult?.skillLevelUps || [],
-        globalLevelUp: res.xpResult?.globalLevelUp || null,
-        recipe: { name: 'Leçon débloquée !' },
-      }, 'recipe');
+      renderLessons();
+      toast('Leçon débloquée ! Lis-la et clique "J\'ai compris !" pour gagner l\'XP.', { icon: 'unlock', tone: 'emerald' });
+      openLesson(id);
     } catch (err) { toast(err.message, { icon: 'alert-triangle', tone: 'rose' }); }
   }
 

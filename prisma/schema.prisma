@@ -173,10 +173,12 @@ model Lesson {
 }
 
 model UserLessonUnlock {
-  id         Int      @id @default(autoincrement())
-  userId     Int
-  lessonId   Int
-  unlockedAt DateTime @default(now())
+  id          Int      @id @default(autoincrement())
+  userId      Int
+  lessonId    Int
+  completed   Boolean  @default(false)
+  completedAt DateTime?
+  unlockedAt  DateTime @default(now())
 
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
   lesson Lesson @relation(fields: [lessonId], references: [id], onDelete: Cascade)
