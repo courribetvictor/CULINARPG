@@ -1,36 +1,38 @@
 <!DOCTYPE html>
-<html lang="fr" class="dark">
+<html lang="fr">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content" />
-  <meta name="theme-color" content="#0b0f17" />
+  <meta name="theme-color" content="#f97316" />
   <meta name="description" content="CulinaRPG — monte en niveau en cuisinant. 500 recettes, 5 compétences, des quêtes quotidiennes." />
   <title>CulinaRPG</title>
 
-  <!-- PWA / écran d'accueil mobile -->
+  <!-- PWA -->
   <link rel="manifest" href="/manifest.webmanifest" />
   <link rel="icon" href="/icons/icon.svg" type="image/svg+xml" />
   <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="mobile-web-app-capable" content="yes" />
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <meta name="apple-mobile-web-app-title" content="CulinaRPG" />
 
   <!-- Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Playfair+Display:wght@700;800&display=swap" rel="stylesheet" />
 
   <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
     tailwind.config = {
-      darkMode: 'class',
       future: { hoverOnlyWhenSupported: true },
       theme: {
         extend: {
-          fontFamily: { sans: ['"Plus Jakarta Sans"', 'Inter', 'system-ui', 'sans-serif'] },
-          colors: { abyss: '#0b0f17' },
+          fontFamily: {
+            sans: ['"Plus Jakarta Sans"', 'Inter', 'system-ui', 'sans-serif'],
+            display: ['"Playfair Display"', 'Georgia', 'serif'],
+          },
+          colors: { brand: '#f97316' },
         },
       },
     };
@@ -41,61 +43,44 @@
   <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.3/dist/confetti.browser.min.js"></script>
 
   <style>
-    :root { color-scheme: dark; --sat: env(safe-area-inset-top); --sab: env(safe-area-inset-bottom); }
-    html, body { background: #0b0f17; }
-    body { -webkit-tap-highlight-color: transparent; overscroll-behavior-y: none; -webkit-font-smoothing: antialiased; }
+    :root { color-scheme: light; --sat: env(safe-area-inset-top); --sab: env(safe-area-inset-bottom); }
+    html, body { background: #fafaf9; }
+    body { -webkit-tap-highlight-color: transparent; overscroll-behavior-y: none; -webkit-font-smoothing: antialiased; color: #1c1917; }
     button, a, label, [role="button"] { touch-action: manipulation; -webkit-user-select: none; user-select: none; }
-    input, textarea, select { font-size: 16px; } /* évite le zoom iOS au focus */
-    ::selection { background: rgba(167, 139, 250, .35); }
-    ::-webkit-scrollbar { width: 8px; height: 8px; }
-    ::-webkit-scrollbar-thumb { background: rgba(148, 163, 184, .18); border-radius: 999px; }
+    input, textarea, select { font-size: 16px; }
+    ::selection { background: rgba(249,115,22,.18); }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-thumb { background: rgba(120,113,108,.2); border-radius: 999px; }
     .no-scrollbar::-webkit-scrollbar { display: none; }
     .no-scrollbar { scrollbar-width: none; }
     .pt-safe { padding-top: max(.75rem, var(--sat)); }
     .pb-safe { padding-bottom: max(.5rem, var(--sab)); }
 
-    /* Ambiance : aurores floues + grille */
-    .aurora { position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; }
-    .aurora span { position: absolute; border-radius: 9999px; filter: blur(90px); opacity: .22; animation: drift 22s ease-in-out infinite alternate; }
-    .aurora .a1 { width: 520px; height: 520px; background: #10b981; top: -160px; left: -140px; }
-    .aurora .a2 { width: 480px; height: 480px; background: #8b5cf6; top: 30%; right: -180px; animation-delay: -6s; }
-    .aurora .a3 { width: 420px; height: 420px; background: #06b6d4; bottom: -160px; left: 20%; animation-delay: -12s; opacity: .16; }
-    .grid-bg { position: fixed; inset: 0; z-index: 0; pointer-events: none;
-      background-image: linear-gradient(rgba(148,163,184,.045) 1px, transparent 1px), linear-gradient(90deg, rgba(148,163,184,.045) 1px, transparent 1px);
-      background-size: 44px 44px; mask-image: radial-gradient(ellipse at 50% 0%, #000 30%, transparent 75%); }
-    @keyframes drift { to { transform: translate3d(60px, 40px, 0) scale(1.15); } }
+    /* White cards (remplace glass morphism) */
+    .glass { background: white; border: 1px solid #e7e5e4; box-shadow: 0 1px 4px rgba(0,0,0,.05); }
+    .glass-strong { background: white; border: 1px solid #d6d3d1; box-shadow: 0 2px 16px rgba(0,0,0,.07); }
 
-    /* Verre */
-    .glass { background: rgba(15, 23, 42, .6); backdrop-filter: blur(14px) saturate(140%); -webkit-backdrop-filter: blur(14px) saturate(140%); border: 1px solid rgba(30, 41, 59, .8); }
-    .glass-strong { background: rgba(15, 23, 42, .86); backdrop-filter: blur(20px) saturate(160%); -webkit-backdrop-filter: blur(20px) saturate(160%); border: 1px solid rgba(51, 65, 85, .6); }
-
-    /* Flamme du streak */
+    /* Flamme streak */
     @keyframes flicker {
-      0%, 100% { transform: scale(1) rotate(-2deg); filter: drop-shadow(0 0 6px rgba(251,146,60,.8)); }
-      25% { transform: scale(1.12) rotate(3deg); filter: drop-shadow(0 0 12px rgba(251,191,36,.9)); }
-      50% { transform: scale(.96) rotate(-3deg); filter: drop-shadow(0 0 8px rgba(249,115,22,.8)); }
-      75% { transform: scale(1.08) rotate(2deg); filter: drop-shadow(0 0 14px rgba(251,146,60,1)); }
+      0%, 100% { transform: scale(1) rotate(-2deg); filter: drop-shadow(0 0 5px rgba(251,146,60,.8)); }
+      25% { transform: scale(1.12) rotate(3deg); filter: drop-shadow(0 0 10px rgba(251,191,36,.9)); }
+      50% { transform: scale(.96) rotate(-3deg); filter: drop-shadow(0 0 7px rgba(249,115,22,.8)); }
+      75% { transform: scale(1.08) rotate(2deg); filter: drop-shadow(0 0 12px rgba(251,146,60,1)); }
     }
     .flame { display: inline-block; animation: flicker 1.4s ease-in-out infinite; transform-origin: 50% 90%; }
-    .flame-off { filter: grayscale(1) opacity(.45); animation: none; }
+    .flame-off { filter: grayscale(1) opacity(.4); animation: none; }
 
     /* Barres de progression */
     .bar-fill { transition: width 1.1s cubic-bezier(.22, 1, .36, 1); position: relative; overflow: hidden; }
     .bar-fill::after { content: ''; position: absolute; inset: 0; transform: translateX(-100%);
-      background: linear-gradient(90deg, transparent, rgba(255,255,255,.45), transparent); animation: sweep 2.8s ease-in-out infinite; }
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,.55), transparent); animation: sweep 2.8s ease-in-out infinite; }
     @keyframes sweep { 60%, 100% { transform: translateX(100%); } }
 
-    /* Carte brillante (modale) */
-    .shine { position: relative; overflow: hidden; }
-    .shine::before { content: ''; position: absolute; top: -50%; left: -60%; width: 40%; height: 200%; pointer-events: none;
-      background: linear-gradient(100deg, transparent, rgba(255,255,255,.16), transparent); transform: rotate(8deg); animation: shine 3.2s ease-in-out infinite; }
-    @keyframes shine { 0% { left: -60%; } 55%, 100% { left: 130%; } }
-    .holo-border { position: relative; isolation: isolate; }
-    .holo-border::after { content: ''; position: absolute; inset: -2px; border-radius: inherit; z-index: -1;
-      background: conic-gradient(from var(--angle, 0deg), #34d399, #fbbf24, #e879f9, #22d3ee, #fb7185, #34d399);
-      animation: spin-angle 4s linear infinite; filter: blur(6px); opacity: .9; }
-    @property --angle { syntax: '<angle>'; initial-value: 0deg; inherits: false; }
-    @keyframes spin-angle { to { --angle: 360deg; } }
+    /* Hover card */
+    .recipe-card { transition: transform .3s cubic-bezier(.22,1,.36,1), box-shadow .3s cubic-bezier(.22,1,.36,1) !important; }
+    @media (hover: hover) {
+      .recipe-card:hover { transform: translateY(-4px) !important; box-shadow: 0 12px 32px rgba(0,0,0,.12) !important; }
+    }
 
     /* Entrées / sorties */
     @keyframes rise { from { opacity: 0; transform: translateY(14px) scale(.98); } to { opacity: 1; transform: none; } }
@@ -122,59 +107,64 @@
     @keyframes float-up { 0% { opacity: 0; transform: translate(-50%, 0) scale(.8); } 15% { opacity: 1; transform: translate(-50%, -10px) scale(1.1); } 100% { opacity: 0; transform: translate(-50%, -70px) scale(1); } }
     .xp-float { position: fixed; pointer-events: none; z-index: 90; font-weight: 800; animation: float-up 1.3s ease-out forwards; }
 
-    @keyframes pulse-glow { 0%, 100% { box-shadow: 0 0 0 0 rgba(167,139,250,.45); } 50% { box-shadow: 0 0 18px 2px rgba(167,139,250,.55); } }
-    .pulse-glow { animation: pulse-glow 2.6s ease-in-out infinite; }
-
     @keyframes float-y { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
     .float-y { animation: float-y 4s ease-in-out infinite; }
 
-    .skeleton { background: linear-gradient(90deg, rgba(30,41,59,.6) 25%, rgba(51,65,85,.6) 37%, rgba(30,41,59,.6) 63%); background-size: 400% 100%; animation: sk 1.4s ease infinite; }
+    /* Skeleton clair */
+    .skeleton { background: linear-gradient(90deg, #f5f5f4 25%, #e7e5e4 37%, #f5f5f4 63%); background-size: 400% 100%; animation: sk 1.4s ease infinite; border-radius: .75rem; }
     @keyframes sk { 0% { background-position: 100% 50%; } 100% { background-position: 0 50%; } }
 
-    .text-glow { text-shadow: 0 0 24px rgba(167,139,250,.55); }
     .img-zoom { transition: transform .7s cubic-bezier(.22, 1, .36, 1); }
     @media (hover: hover) { .group:hover .img-zoom { transform: scale(1.08); } }
     .press { transition: transform .15s ease; }
     .press:active { transform: scale(.96); }
+
+    .pulse-glow { animation: none; }
+    .text-glow { text-shadow: none; }
 
     @media (prefers-reduced-motion: reduce) {
       *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
     }
   </style>
 </head>
-<body class="font-sans text-slate-100 min-h-[100dvh] bg-[#0b0f17]">
-  <div class="aurora"><span class="a1"></span><span class="a2"></span><span class="a3"></span></div>
-  <div class="grid-bg"></div>
+<body class="font-sans text-stone-900 min-h-[100dvh] bg-stone-50">
 
   <!-- Écrans plein écran (connexion, onboarding, chargement) -->
   <div id="screen" class="relative z-10"></div>
 
   <!-- ============ APPLICATION ============ -->
   <div id="shell" class="hidden">
+
     <!-- Header -->
     <header class="fixed top-0 inset-x-0 z-40 px-3 sm:px-6 pt-safe">
-      <div class="glass-strong mx-auto max-w-6xl rounded-2xl px-3 sm:px-5 py-2.5 flex items-center gap-3 shadow-[0_10px_40px_-10px_rgba(0,0,0,.7)]">
+      <div class="bg-white border border-stone-200 shadow-[0_2px_12px_rgba(0,0,0,.06)] mx-auto max-w-6xl rounded-2xl px-3 sm:px-5 py-2.5 flex items-center gap-3">
         <button id="hdr-avatar" class="relative shrink-0 press" data-open="account" aria-label="Mon compte">
-          <div id="hdr-ring" class="w-11 h-11 rounded-full p-[2px]" style="background: conic-gradient(#a78bfa 0%, #1e293b 0%);">
-            <div id="hdr-avatar-inner" class="w-full h-full rounded-full overflow-hidden"></div>
+          <div id="hdr-ring" class="w-11 h-11 rounded-full p-[2px]" style="background: conic-gradient(#f97316 0%, #e7e5e4 0%);">
+            <div id="hdr-avatar-inner" class="w-full h-full rounded-full overflow-hidden bg-stone-100"></div>
           </div>
-          <span id="hdr-level-badge" class="absolute -bottom-1 -right-1 min-w-[22px] h-[22px] px-1 rounded-full bg-gradient-to-br from-violet-500 to-fuchsia-500 text-[11px] font-extrabold grid place-items-center border-2 border-slate-900 pulse-glow">1</span>
+          <span id="hdr-level-badge" class="absolute -bottom-1 -right-1 min-w-[22px] h-[22px] px-1 rounded-full bg-orange-500 text-white text-[11px] font-extrabold grid place-items-center border-2 border-white shadow-sm">1</span>
         </button>
         <div class="flex-1 min-w-0">
           <div class="flex items-baseline gap-2 min-w-0">
-            <span id="hdr-name" class="font-bold tracking-tight truncate"></span>
-            <span id="hdr-title" class="text-[11px] font-semibold text-violet-300/90 truncate"></span>
+            <span id="hdr-name" class="font-bold tracking-tight text-stone-800 truncate"></span>
+            <span id="hdr-title" class="text-[11px] font-semibold text-orange-500 truncate"></span>
           </div>
           <div class="mt-1.5 flex items-center gap-2">
-            <div class="relative flex-1 h-2 rounded-full bg-slate-800/90 overflow-hidden ring-1 ring-inset ring-white/5">
-              <div id="hdr-xp-bar" class="bar-fill h-full rounded-full bg-gradient-to-r from-violet-500 via-fuchsia-500 to-cyan-400 shadow-[0_0_12px_rgba(192,132,252,.8)]" style="width:0%"></div>
+            <div class="relative flex-1 h-2 rounded-full bg-stone-100 overflow-hidden">
+              <div id="hdr-xp-bar" class="bar-fill h-full rounded-full bg-gradient-to-r from-orange-400 to-orange-500" style="width:0%"></div>
             </div>
-            <span id="hdr-xp-text" class="text-[10px] font-bold text-slate-400 tabular-nums whitespace-nowrap"></span>
+            <span id="hdr-xp-text" class="text-[10px] font-bold text-stone-400 tabular-nums whitespace-nowrap"></span>
           </div>
         </div>
-        <div id="hdr-streak" class="shrink-0 flex items-center gap-1.5 rounded-xl px-2.5 py-1.5 bg-gradient-to-br from-amber-500/15 to-orange-600/15 border border-orange-500/30 shadow-[0_0_16px_rgba(249,115,22,.25)]">
-          <span id="hdr-flame" class="flame text-xl leading-none">🔥</span>
-          <span id="hdr-streak-count" class="text-lg font-extrabold tabular-nums text-amber-300 leading-none">0</span>
+        <div class="shrink-0 flex items-center gap-2">
+          <button id="hdr-gems" data-open="gem-shop" class="press flex items-center gap-1 rounded-xl px-2 py-1.5 bg-cyan-50 border border-cyan-200 hover:bg-cyan-100 transition-colors" aria-label="Boutique de gemmes">
+            <span class="text-base leading-none">💎</span>
+            <span id="hdr-gems-count" class="text-sm font-extrabold tabular-nums text-cyan-700 leading-none">0</span>
+          </button>
+          <div id="hdr-streak" class="flex items-center gap-1.5 rounded-xl px-2.5 py-1.5 bg-orange-50 border border-orange-200">
+            <span id="hdr-flame" class="flame text-xl leading-none">🔥</span>
+            <span id="hdr-streak-count" class="text-lg font-extrabold tabular-nums text-orange-600 leading-none">0</span>
+          </div>
         </div>
       </div>
     </header>
@@ -183,17 +173,23 @@
 
     <!-- Navigation basse -->
     <nav class="fixed bottom-0 inset-x-0 z-40 sm:bottom-4 sm:flex sm:justify-center sm:px-4">
-      <div class="glass-strong relative grid grid-cols-3 sm:flex sm:gap-1 border-x-0 border-b-0 sm:border rounded-t-3xl sm:rounded-2xl px-2 pt-2 pb-safe sm:p-1.5 shadow-[0_-10px_40px_-12px_rgba(0,0,0,.9)]">
-        <span id="nav-indicator" class="hidden sm:block absolute top-1.5 bottom-1.5 rounded-xl bg-gradient-to-r from-violet-500/90 to-fuchsia-500/90 shadow-[0_0_20px_rgba(192,132,252,.55)] transition-all duration-500 ease-[cubic-bezier(.22,1,.36,1)]"></span>
-        <button data-tab="profile" class="nav-btn press relative z-10 flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 py-1.5 sm:px-6 sm:py-3 rounded-xl font-semibold text-[11px] sm:text-sm transition-colors duration-300">
-          <span class="nav-ico grid place-items-center w-12 h-8 sm:w-auto sm:h-auto rounded-full transition-all duration-300"><i data-lucide="user-round" class="w-5 h-5"></i></span><span>Profil</span>
+      <div class="bg-white border-t border-stone-200 sm:border sm:rounded-2xl relative grid grid-cols-5 sm:flex sm:gap-1 px-1 pt-1.5 pb-safe sm:p-1.5 shadow-[0_-2px_12px_rgba(0,0,0,.05)] sm:shadow-[0_8px_24px_rgba(0,0,0,.1)]">
+        <span id="nav-indicator" class="hidden sm:block absolute top-1.5 bottom-1.5 rounded-xl bg-orange-500 transition-all duration-500 ease-[cubic-bezier(.22,1,.36,1)]"></span>
+        <button data-tab="profile" class="nav-btn press relative z-10 flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-2 py-1 sm:px-5 sm:py-3 rounded-xl font-semibold text-[10px] sm:text-sm transition-colors duration-300">
+          <span class="nav-ico grid place-items-center w-9 h-7 sm:w-auto sm:h-auto rounded-full transition-all duration-300"><i data-lucide="user-round" class="w-5 h-5"></i></span><span class="truncate">Profil</span>
         </button>
-        <button data-tab="dailies" class="nav-btn press relative z-10 flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 py-1.5 sm:px-6 sm:py-3 rounded-xl font-semibold text-[11px] sm:text-sm transition-colors duration-300">
-          <span class="nav-ico relative grid place-items-center w-12 h-8 sm:w-auto sm:h-auto rounded-full transition-all duration-300"><i data-lucide="zap" class="w-5 h-5"></i>
-            <span id="nav-dailies-dot" class="hidden absolute top-0.5 right-2.5 sm:-top-1 sm:-right-1 w-2 h-2 rounded-full bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,.9)]"></span></span><span>Dailies</span>
+        <button data-tab="dailies" class="nav-btn press relative z-10 flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-2 py-1 sm:px-5 sm:py-3 rounded-xl font-semibold text-[10px] sm:text-sm transition-colors duration-300">
+          <span class="nav-ico relative grid place-items-center w-9 h-7 sm:w-auto sm:h-auto rounded-full transition-all duration-300"><i data-lucide="zap" class="w-5 h-5"></i>
+            <span id="nav-dailies-dot" class="hidden absolute top-0 right-1 sm:-top-1 sm:-right-1 w-2 h-2 rounded-full bg-orange-500"></span></span><span class="truncate">Dailies</span>
         </button>
-        <button data-tab="recipes" class="nav-btn press relative z-10 flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 py-1.5 sm:px-6 sm:py-3 rounded-xl font-semibold text-[11px] sm:text-sm transition-colors duration-300">
-          <span class="nav-ico grid place-items-center w-12 h-8 sm:w-auto sm:h-auto rounded-full transition-all duration-300"><i data-lucide="book-open" class="w-5 h-5"></i></span><span>Quêtes</span>
+        <button data-tab="recipes" class="nav-btn press relative z-10 flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-2 py-1 sm:px-5 sm:py-3 rounded-xl font-semibold text-[10px] sm:text-sm transition-colors duration-300">
+          <span class="nav-ico grid place-items-center w-9 h-7 sm:w-auto sm:h-auto rounded-full transition-all duration-300"><i data-lucide="book-open" class="w-5 h-5"></i></span><span class="truncate">Recettes</span>
+        </button>
+        <button data-tab="lessons" class="nav-btn press relative z-10 flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-2 py-1 sm:px-5 sm:py-3 rounded-xl font-semibold text-[10px] sm:text-sm transition-colors duration-300">
+          <span class="nav-ico grid place-items-center w-9 h-7 sm:w-auto sm:h-auto rounded-full transition-all duration-300"><i data-lucide="graduation-cap" class="w-5 h-5"></i></span><span class="truncate">Leçons</span>
+        </button>
+        <button data-tab="ranked" class="nav-btn press relative z-10 flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-2 py-1 sm:px-5 sm:py-3 rounded-xl font-semibold text-[10px] sm:text-sm transition-colors duration-300">
+          <span class="nav-ico grid place-items-center w-9 h-7 sm:w-auto sm:h-auto rounded-full transition-all duration-300"><i data-lucide="trophy" class="w-5 h-5"></i></span><span class="truncate">Classement</span>
         </button>
       </div>
     </nav>

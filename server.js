@@ -5,7 +5,7 @@ const express = require('express');
 const cors = require('cors');
 const { PrismaClient, Prisma } = require('@prisma/client');
 const {
-  SKILLS, CHEF_CLASSES, CLASS_BONUS, skillLevel, globalLevel, skillProgress, globalProgress, titleForLevel, titlesFor,
+  SKILLS, LEAGUES, CHEF_CLASSES, CLASS_BONUS, skillLevel, globalLevel, skillProgress, globalProgress, titleForLevel, titlesFor, userLeague, computeRewards,
 } = require('./lib/game');
 const auth = require('./lib/auth');
 const { normalizeText } = require('./lib/text');
@@ -14,6 +14,11 @@ const { resolveRecipeImages } = require('./lib/images');
 const prisma = new PrismaClient();
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
+const APP_URL = (process.env.APP_URL || `http://localhost:${PORT}`).replace(/\/$/, '');
+
+const stripe = process.env.STRIPE_SECRET_KEY
+  ? require('stripe')(process.env.STRIPE_SECRET_KEY)
+  : null;
 
 if (process.env.TRUST_PROXY) app.set('trust proxy', Number(process.env.TRUST_PROXY) || process.env.TRUST_PROXY);
 app.disable('x-powered-by');
@@ -28,7 +33,10 @@ app.use((req, res, next) => {
   res.setHeader('X-Frame-Options', 'DENY');
   next();
 });
-app.use(express.json({ limit: '512kb' }));
+app.use(express.json({
+  limit: '512kb',
+  verify: (req, _res, buf) => { req.rawBody = buf; },
+}));
 app.use(express.static(path.join(__dirname, 'public'), {
   setHeaders: (res, file) => {
     if (file.endsWith('sw.js')) res.setHeader('Cache-Control', 'no-cache');
@@ -93,6 +101,8 @@ function publicUser(user, skills = []) {
     title: displayTitle(user, skills),
     onboarded: user.onboarded,
     level: globalLevel(user.totalXp),
+    gems: user.gems || 0,
+    isPro: user.isPro || false,
     createdAt: user.createdAt,
   };
 }
@@ -529,6 +539,64 @@ app.get('/api/recipes', wrap(async (req, res) => {
   });
 }));
 
+// ---------------------------------------------------------------------------
+// Recettes personnelles (privées)
+// ---------------------------------------------------------------------------
+app.get('/api/recipes/mine', wrap(async (req, res) => {
+  const recipes = await prisma.recipe.findMany({
+    where: { creatorId: req.user.id, isCustom: true },
+    orderBy: { createdAt: 'desc' },
+    include: { _count: { select: { completions: true } } },
+  });
+  res.json(recipes.map((r) => ({ ...serializeRecipe(r), cookedCount: r._count.completions })));
+}));
+
+app.post('/api/recipes/mine', wrap(async (req, res) => {
+  const { title, category, timeMinutes, ingredients, instructions, imageUrl } = req.body;
+  if (!title?.trim()) return res.status(400).json({ error: 'Le titre est requis', field: 'title' });
+  if (!Array.isArray(ingredients) || !ingredients.length) return res.status(400).json({ error: 'Au moins un ingrédient requis', field: 'ingredients' });
+  if (!instructions?.trim()) return res.status(400).json({ error: 'Les étapes sont requises', field: 'instructions' });
+
+  const { difficulty, skillRewards, totalXp } = computeRewards({
+    instructions,
+    ingredientsCount: ingredients.length,
+    timeMinutes: Number(timeMinutes) || 30,
+    category: category || '',
+  });
+  const mainSkill = Object.entries(skillRewards).sort((a, b) => b[1] - a[1])[0]?.[0] || 'prep';
+
+  const recipe = await prisma.recipe.create({
+    data: {
+      source: 'custom',
+      name: title.trim(),
+      description: '',
+      category: category || 'Autre',
+      timeMinutes: Math.max(1, Number(timeMinutes) || 30),
+      difficulty,
+      ingredients: JSON.stringify(ingredients),
+      instructions: instructions.trim(),
+      skillRewards: JSON.stringify(skillRewards),
+      mainSkill,
+      totalXp,
+      searchText: normalizeText(title),
+      emoji: '🍽️',
+      imageUrl: imageUrl || null,
+      isCustom: true,
+      creatorId: req.user.id,
+    },
+  });
+  res.status(201).json(serializeRecipe(recipe));
+}));
+
+app.delete('/api/recipes/mine/:id', wrap(async (req, res) => {
+  const recipe = await prisma.recipe.findFirst({
+    where: { id: Number(req.params.id) || 0, creatorId: req.user.id, isCustom: true },
+  });
+  if (!recipe) return res.status(404).json({ error: 'Recette introuvable' });
+  await prisma.recipe.delete({ where: { id: recipe.id } });
+  res.json({ ok: true });
+}));
+
 app.get('/api/recipes/:id', wrap(async (req, res) => {
   const recipe = await prisma.recipe.findUnique({ where: { id: Number(req.params.id) || 0 } });
   if (!recipe) return res.status(404).json({ error: 'Recette introuvable' });
@@ -549,12 +617,282 @@ app.post('/api/recipes/:id/cook', wrap(async (req, res) => {
 
   const result = await grantXp(req.user.id, rewards, [
     (tx, xpGained) => tx.userRecipeCompletion.create({ data: { userId: req.user.id, recipeId: recipe.id, xpGained } }),
+    (tx, xpGained) => tx.user.update({ where: { id: req.user.id }, data: { gems: { increment: Math.max(1, Math.floor(xpGained / 10)) } } }),
   ]);
+  const gemsEarned = Math.max(1, Math.floor(result.xpGained / 10));
+  const updatedUser = await prisma.user.findUnique({ where: { id: req.user.id }, select: { gems: true } });
   res.json({
     ...result,
     multiplier,
+    gemsEarned,
+    gems: updatedUser.gems,
     recipe: { id: recipe.id, name: recipe.name, emoji: recipe.emoji, imageUrl: recipe.imageUrl },
   });
+}));
+
+// ---------------------------------------------------------------------------
+// Classement Ranked
+// ---------------------------------------------------------------------------
+app.get('/api/ranked', wrap(async (req, res) => {
+  const players = await prisma.user.findMany({
+    select: { id: true, username: true, displayName: true, avatar: true, avatarColor: true, avatarImage: true, totalXp: true, chefClass: true },
+    orderBy: { totalXp: 'desc' },
+    take: 50,
+  });
+  const leaderboard = players.map((p, i) => ({
+    rank: i + 1,
+    ...p,
+    league: userLeague(p.totalXp),
+    level: globalLevel(p.totalXp),
+  }));
+  let me = leaderboard.find((p) => p.id === req.user.id);
+  if (!me) {
+    const above = await prisma.user.count({ where: { totalXp: { gt: req.user.totalXp } } });
+    me = { rank: above + 1, ...req.user, league: userLeague(req.user.totalXp), level: globalLevel(req.user.totalXp) };
+  }
+  res.json({
+    leaderboard,
+    me,
+    myLeague: userLeague(req.user.totalXp),
+    leagues: LEAGUES,
+    season: { number: 1, name: 'Saison des Premières Flammes', endDate: '2025-12-31' },
+  });
+}));
+
+// ---------------------------------------------------------------------------
+// Quêtes personnalisées
+// ---------------------------------------------------------------------------
+app.get('/api/quests', wrap(async (req, res) => {
+  const quests = await prisma.userQuest.findMany({
+    where: { userId: req.user.id },
+    orderBy: [{ completed: 'asc' }, { createdAt: 'desc' }],
+  });
+  res.json(quests);
+}));
+
+app.post('/api/quests', wrap(async (req, res) => {
+  const { title, description, skill, targetCount, icon } = req.body || {};
+  const t = String(title || '').trim();
+  if (t.length < 2 || t.length > 60) return badRequest(res, 'Titre : 2 à 60 caractères.', 'title');
+  if (!SKILLS.includes(skill)) return badRequest(res, 'Compétence invalide.', 'skill');
+  const target = Math.min(50, Math.max(1, parseInt(targetCount, 10) || 1));
+  const quest = await prisma.userQuest.create({
+    data: {
+      userId: req.user.id,
+      title: t,
+      description: String(description || '').trim().slice(0, 200),
+      skill,
+      icon: String(icon || 'target').slice(0, 30),
+      targetCount: target,
+    },
+  });
+  res.status(201).json(quest);
+}));
+
+app.post('/api/quests/:id/log', wrap(async (req, res) => {
+  const quest = await prisma.userQuest.findFirst({ where: { id: Number(req.params.id) || 0, userId: req.user.id } });
+  if (!quest) return res.status(404).json({ error: 'Quête introuvable' });
+  if (quest.completed) return res.status(409).json({ error: 'Quête déjà complétée' });
+  const newCount = quest.currentCount + 1;
+  const completing = newCount >= quest.targetCount;
+  await prisma.userQuest.update({
+    where: { id: quest.id },
+    data: { currentCount: newCount, completed: completing, completedAt: completing ? new Date() : undefined },
+  });
+  let xpResult = null;
+  if (completing) {
+    const xpBase = Math.min(200, 50 + quest.targetCount * 15);
+    xpResult = await grantXp(req.user.id, { [quest.skill]: xpBase });
+    await prisma.user.update({ where: { id: req.user.id }, data: { gems: { increment: 5 } } });
+  }
+  res.json({ quest: { ...quest, currentCount: newCount, completed: completing }, xpResult });
+}));
+
+app.delete('/api/quests/:id', wrap(async (req, res) => {
+  const deleted = await prisma.userQuest.deleteMany({ where: { id: Number(req.params.id) || 0, userId: req.user.id } });
+  if (!deleted.count) return res.status(404).json({ error: 'Quête introuvable' });
+  res.json({ ok: true });
+}));
+
+// ---------------------------------------------------------------------------
+// Leçons
+// ---------------------------------------------------------------------------
+app.get('/api/lessons', wrap(async (req, res) => {
+  const [lessons, unlocks] = await Promise.all([
+    prisma.lesson.findMany({ orderBy: { order: 'asc' } }),
+    prisma.userLessonUnlock.findMany({ where: { userId: req.user.id } }),
+  ]);
+  const unlockedIds = new Set(unlocks.map((u) => u.lessonId));
+  res.json(lessons.map((l) => ({
+    id: l.id, slug: l.slug, title: l.title, description: l.description,
+    category: l.category, skill: l.skill, difficulty: l.difficulty,
+    icon: l.icon, gemCost: l.gemCost, xpReward: l.xpReward, order: l.order,
+    unlocked: l.gemCost === 0 || req.user.isPro || unlockedIds.has(l.id),
+    completed: unlockedIds.has(l.id),
+  })));
+}));
+
+app.get('/api/lessons/:id', wrap(async (req, res) => {
+  const lesson = await prisma.lesson.findUnique({ where: { id: Number(req.params.id) || 0 } });
+  if (!lesson) return res.status(404).json({ error: 'Leçon introuvable' });
+  const unlock = await prisma.userLessonUnlock.findUnique({ where: { userId_lessonId: { userId: req.user.id, lessonId: lesson.id } } });
+  const accessible = lesson.gemCost === 0 || req.user.isPro || !!unlock;
+  if (!accessible) return res.status(403).json({ error: 'Leçon verrouillée', gemCost: lesson.gemCost, gems: req.user.gems });
+  res.json({ ...lesson, content: JSON.parse(lesson.content), completed: !!unlock });
+}));
+
+app.post('/api/lessons/:id/unlock', wrap(async (req, res) => {
+  const lesson = await prisma.lesson.findUnique({ where: { id: Number(req.params.id) || 0 } });
+  if (!lesson) return res.status(404).json({ error: 'Leçon introuvable' });
+  const existing = await prisma.userLessonUnlock.findUnique({ where: { userId_lessonId: { userId: req.user.id, lessonId: lesson.id } } });
+  if (existing) return res.status(409).json({ error: 'Leçon déjà débloquée' });
+  if (lesson.gemCost > 0 && !req.user.isPro) {
+    if (req.user.gems < lesson.gemCost) {
+      return res.status(402).json({ error: `Gemmes insuffisantes (${req.user.gems}/${lesson.gemCost})`, gems: req.user.gems });
+    }
+    await prisma.user.update({ where: { id: req.user.id }, data: { gems: { decrement: lesson.gemCost } } });
+  }
+  await prisma.userLessonUnlock.create({ data: { userId: req.user.id, lessonId: lesson.id } });
+  const xpResult = await grantXp(req.user.id, { [lesson.skill]: lesson.xpReward });
+  const updatedUser = await prisma.user.findUnique({ where: { id: req.user.id }, select: { gems: true } });
+  res.json({ ok: true, gems: updatedUser.gems, xpResult });
+}));
+
+// ---------------------------------------------------------------------------
+// Boutique & Stripe
+// ---------------------------------------------------------------------------
+const GEM_PACKS = {
+  starter: { gems: 100,  unitAmount: 199,  label: '100 gemmes'   },
+  valeur:  { gems: 500,  unitAmount: 499,  label: '500 gemmes'   },
+  maxi:    { gems: 1500, unitAmount: 999,  label: '1 500 gemmes' },
+};
+const PRO_PLANS = {
+  monthly: { unitAmount: 399,  interval: 'month', label: 'Pro mensuel' },
+  annual:  { unitAmount: 2999, interval: 'year',  label: 'Pro annuel'  },
+};
+
+// Helper : fulfil a payment (called by webhook AND simulation fallback)
+async function fulfillGems(userId, pack) {
+  const updated = await prisma.user.update({ where: { id: userId }, data: { gems: { increment: pack.gems } }, select: { gems: true } });
+  return { gems: updated.gems, earned: pack.gems };
+}
+async function fulfillPro(userId) {
+  await prisma.user.update({ where: { id: userId }, data: { isPro: true } });
+}
+async function fulfillLesson(userId, lesson) {
+  const exists = await prisma.userLessonUnlock.findUnique({ where: { userId_lessonId: { userId, lessonId: lesson.id } } });
+  if (exists) return null;
+  await prisma.userLessonUnlock.create({ data: { userId, lessonId: lesson.id } });
+  return grantXp(userId, { [lesson.skill]: lesson.xpReward });
+}
+
+// POST /api/stripe/checkout/gems
+app.post('/api/stripe/checkout/gems', requireAuth, wrap(async (req, res) => {
+  const pack = GEM_PACKS[req.body?.pack];
+  if (!pack) return badRequest(res, 'Pack invalide');
+  if (!stripe) {
+    const result = await fulfillGems(req.user.id, pack);
+    return res.json({ simulated: true, ...result });
+  }
+  const session = await stripe.checkout.sessions.create({
+    mode: 'payment',
+    line_items: [{ quantity: 1, price_data: { currency: 'eur', unit_amount: pack.unitAmount, product_data: { name: `CulinaRPG · ${pack.label}`, description: `${pack.gems} gemmes pour débloquer des leçons premium` } } }],
+    metadata: { type: 'gems', userId: String(req.user.id), gemPack: req.body.pack, gemAmount: String(pack.gems) },
+    success_url: `${APP_URL}/?payment=success&type=gems&earned=${pack.gems}`,
+    cancel_url: `${APP_URL}/#profile`,
+  });
+  res.json({ url: session.url });
+}));
+
+// POST /api/stripe/checkout/pro
+app.post('/api/stripe/checkout/pro', requireAuth, wrap(async (req, res) => {
+  const plan = PRO_PLANS[req.body?.plan] || PRO_PLANS.annual;
+  if (!stripe) {
+    await fulfillPro(req.user.id);
+    return res.json({ simulated: true, isPro: true });
+  }
+  const session = await stripe.checkout.sessions.create({
+    mode: 'subscription',
+    line_items: [{ quantity: 1, price_data: { currency: 'eur', unit_amount: plan.unitAmount, recurring: { interval: plan.interval }, product_data: { name: `CulinaRPG Pro · ${plan.label}`, description: 'Accès illimité à toutes les leçons et fonctionnalités avancées' } } }],
+    metadata: { type: 'pro', userId: String(req.user.id), plan: req.body?.plan || 'annual' },
+    success_url: `${APP_URL}/?payment=success&type=pro`,
+    cancel_url: `${APP_URL}/#lessons`,
+  });
+  res.json({ url: session.url });
+}));
+
+// POST /api/stripe/checkout/lesson
+app.post('/api/stripe/checkout/lesson', requireAuth, wrap(async (req, res) => {
+  const lesson = await prisma.lesson.findUnique({ where: { id: Number(req.body?.lessonId) || 0 } });
+  if (!lesson) return res.status(404).json({ error: 'Leçon introuvable' });
+  if (!stripe) {
+    const xpResult = await fulfillLesson(req.user.id, lesson);
+    if (!xpResult) return res.status(409).json({ error: 'Leçon déjà débloquée' });
+    return res.json({ simulated: true, xpResult });
+  }
+  const existing = await prisma.userLessonUnlock.findUnique({ where: { userId_lessonId: { userId: req.user.id, lessonId: lesson.id } } });
+  if (existing) return res.status(409).json({ error: 'Leçon déjà débloquée' });
+  const session = await stripe.checkout.sessions.create({
+    mode: 'payment',
+    line_items: [{ quantity: 1, price_data: { currency: 'eur', unit_amount: 99, product_data: { name: `CulinaRPG · Leçon : ${lesson.title}`, description: lesson.description } } }],
+    metadata: { type: 'lesson', userId: String(req.user.id), lessonId: String(lesson.id), lessonSkill: lesson.skill, lessonXp: String(lesson.xpReward) },
+    success_url: `${APP_URL}/?payment=success&type=lesson`,
+    cancel_url: `${APP_URL}/#lessons`,
+  });
+  res.json({ url: session.url });
+}));
+
+// Backward-compat simulation aliases (utilisés quand Stripe n'est pas configuré)
+app.post('/api/shop/gems', requireAuth, wrap(async (req, res) => {
+  const pack = GEM_PACKS[req.body?.pack];
+  if (!pack) return badRequest(res, 'Pack invalide');
+  const result = await fulfillGems(req.user.id, pack);
+  res.json({ ok: true, ...result });
+}));
+app.post('/api/shop/pro', requireAuth, wrap(async (req, res) => {
+  await fulfillPro(req.user.id);
+  res.json({ ok: true, isPro: true });
+}));
+app.post('/api/lessons/:id/buy', requireAuth, wrap(async (req, res) => {
+  const lesson = await prisma.lesson.findUnique({ where: { id: Number(req.params.id) || 0 } });
+  if (!lesson) return res.status(404).json({ error: 'Leçon introuvable' });
+  const xpResult = await fulfillLesson(req.user.id, lesson);
+  if (!xpResult) return res.status(409).json({ error: 'Leçon déjà débloquée' });
+  res.json({ ok: true, xpResult });
+}));
+
+// POST /api/stripe/webhook
+app.post('/api/stripe/webhook', wrap(async (req, res) => {
+  if (!stripe || !process.env.STRIPE_WEBHOOK_SECRET) {
+    return res.status(503).json({ error: 'Webhook Stripe non configuré (STRIPE_WEBHOOK_SECRET manquant)' });
+  }
+  let event;
+  try {
+    event = stripe.webhooks.constructEvent(req.rawBody, req.headers['stripe-signature'], process.env.STRIPE_WEBHOOK_SECRET);
+  } catch (err) {
+    console.error('[Stripe] Signature invalide :', err.message);
+    return res.status(400).send(`Webhook Error: ${err.message}`);
+  }
+  if (event.type === 'checkout.session.completed') {
+    const session = event.data.object;
+    const { type, userId, gemPack, gemAmount, lessonId, lessonSkill, lessonXp } = session.metadata || {};
+    const uid = parseInt(userId, 10);
+    try {
+      if (type === 'gems') {
+        const pack = GEM_PACKS[gemPack] || { gems: parseInt(gemAmount, 10) };
+        await fulfillGems(uid, pack);
+        console.log(`[Stripe] Gems fulfilled: user ${uid} +${pack.gems}`);
+      } else if (type === 'pro') {
+        await fulfillPro(uid);
+        console.log(`[Stripe] Pro fulfilled: user ${uid}`);
+      } else if (type === 'lesson') {
+        const lesson = { id: parseInt(lessonId, 10), skill: lessonSkill, xpReward: parseInt(lessonXp, 10) };
+        await fulfillLesson(uid, lesson);
+        console.log(`[Stripe] Lesson fulfilled: user ${uid} lesson ${lessonId}`);
+      }
+    } catch (e) { console.error('[Stripe] Fulfillment error:', e); }
+  }
+  res.json({ received: true });
 }));
 
 // ---------------------------------------------------------------------------
@@ -571,13 +909,33 @@ app.use((err, req, res, next) => {
   return res.status(err.status || 500).json({ error: 'Erreur serveur' });
 });
 
+// ---------------------------------------------------------------------------
+// Seed leçons (au démarrage si la table est vide)
+// ---------------------------------------------------------------------------
+const LESSON_SEED = [
+  { slug: 'coupes-essentielles', title: 'Les coupes essentielles', description: 'Julienne, brunoise, chiffonnade… maîtrise les coupes de base.', category: 'knife', skill: 'knife', difficulty: 1, icon: 'scissors', gemCost: 0, xpReward: 80, order: 1, content: JSON.stringify([{ type: 'text', text: 'La maîtrise du couteau est la base de toute cuisine professionnelle.' }, { type: 'technique', title: 'Julienne', text: 'Bâtonnets de 3×3×50mm. Idéale pour les légumes sautés et salades.' }, { type: 'technique', title: 'Brunoise', text: 'Dés de 3×3×3mm. Parfaite pour les sauces, soupes et farces.' }, { type: 'tip', text: 'Garde les doigts repliés en "griffe de chat" pour protéger les bouts.' }, { type: 'technique', title: 'Chiffonnade', text: 'Rouler les feuilles et couper en fines lanières. Idéal pour basilic, menthe.' }]) },
+  { slug: 'mise-en-place', title: 'La mise en place', description: 'L\'art de l\'organisation. Prépare comme un pro, cuisine sans stress.', category: 'prep', skill: 'prep', difficulty: 1, icon: 'layout-grid', gemCost: 0, xpReward: 80, order: 2, content: JSON.stringify([{ type: 'text', text: 'Mise en place = tout préparer avant de cuisiner. La philosophie de toute grande cuisine.' }, { type: 'technique', title: 'Lire la recette entière', text: 'Identifier les temps de repos, étapes parallèles et équipements nécessaires avant de commencer.' }, { type: 'tip', text: 'Peser et disposer tous les ingrédients dans des bols avant la première étape.' }, { type: 'technique', title: 'Nettoyer au fur et à mesure', text: 'Un plan de travail propre = plus de vitesse et de précision.' }]) },
+  { slug: 'aromates-de-base', title: 'Les aromates de base', description: 'Herbes, épices, zestes. Construire de la profondeur de goût.', category: 'seasoning', skill: 'seasoning', difficulty: 1, icon: 'leaf', gemCost: 0, xpReward: 80, order: 3, content: JSON.stringify([{ type: 'text', text: 'L\'assaisonnement construit complexité et équilibre. Sel, acide, gras, sucre, umami — tes cinq piliers.' }, { type: 'technique', title: 'Le sel en étapes', text: 'Saler pendant la cuisson, pas seulement à la fin. Le sel pénètre et rehausse tous les arômes.' }, { type: 'technique', title: 'L\'acidité', text: 'Un filet de citron ou vinaigre à la fin "ouvre" les saveurs d\'un plat qui paraît fade.' }, { type: 'tip', text: 'Herbes fragiles (basilic, coriandre) : fin de cuisson. Herbes robustes (thym, romarin) : début.' }]) },
+  { slug: 'bases-patisserie', title: 'Les bases de la pâtisserie', description: 'Crèmes fondamentales, pâtes de base, techniques essentielles.', category: 'baking', skill: 'baking', difficulty: 2, icon: 'cake', gemCost: 30, xpReward: 120, order: 4, content: JSON.stringify([{ type: 'text', text: 'La pâtisserie est une science exacte. Les proportions doivent être respectées à la gramme près.' }, { type: 'technique', title: 'Crème pâtissière', text: 'Jaunes + sucre (blanchir) + fécule → incorporer le lait chaud progressivement sans cesser de fouetter.' }, { type: 'technique', title: 'Pâte brisée', text: 'Sabler le beurre froid dans la farine, lier avec eau glacée minimum. Ne pas trop travailler.' }, { type: 'tip', text: 'Préchauffer le four 15 min minimum. La stabilité de température est cruciale en pâtisserie.' }]) },
+  { slug: 'maitrise-saisie', title: 'Maîtriser la saisie', description: 'Croûte parfaite, jus préservé. Comprends la réaction de Maillard.', category: 'fire', skill: 'fire', difficulty: 2, icon: 'flame', gemCost: 30, xpReward: 120, order: 5, content: JSON.stringify([{ type: 'text', text: 'La réaction de Maillard (>150°C) crée la croûte dorée et parfumée. Elle nécessite une surface sèche et une poêle très chaude.' }, { type: 'technique', title: 'Préchauffer à vif', text: 'Laisser monter la poêle à feu vif 2-3 min. Quelques gouttes d\'eau doivent s\'évaporer instantanément.' }, { type: 'tip', text: 'Sécher la surface de la viande au papier absorbant. L\'humidité = vapeur = pas de croûte.' }, { type: 'technique', title: 'Ne pas toucher', text: 'Déposer et ne pas bouger 2-3 min. La pièce se décollera seule quand la croûte sera formée.' }]) },
+  { slug: 'coupes-avancees', title: 'Coupes avancées', description: 'Paysanne, taille en losanges, chiffonnade fine.', category: 'knife', skill: 'knife', difficulty: 2, icon: 'git-branch', gemCost: 30, xpReward: 120, order: 6, content: JSON.stringify([{ type: 'text', text: 'Ces tailles apportent élégance et cuisson uniforme à tes plats.' }, { type: 'technique', title: 'Paysanne', text: 'Tranches irrégulières de 3-4mm. Idéale pour les soupes et ragoûts rustiques.' }, { type: 'technique', title: 'En losanges', text: 'Couper en biais pour des formes géométriques élégantes, souvent utilisé pour les carottes.' }, { type: 'tip', text: 'L\'affûtage régulier est plus important que le couteau lui-même. Un couteau tranchant est plus sûr.' }]) },
+  { slug: 'cuisson-basse-temp', title: 'Cuisson basse température', description: 'Viandes parfaites, textures sublimes. Le secret des grands chefs.', category: 'fire', skill: 'fire', difficulty: 3, icon: 'thermometer', gemCost: 50, xpReward: 180, order: 7, content: JSON.stringify([{ type: 'text', text: 'Entre 60-80°C, la cuisson est douce et homogène sans rétrécissement des protéines. Résultat : viandes d\'une tendreté incroyable.' }, { type: 'technique', title: 'Rôti basse température', text: 'Saisir à feu vif pour le Maillard, puis four à 65-75°C pendant 2-4h selon épaisseur.' }, { type: 'technique', title: 'Températures cibles', text: 'Bœuf rosé : 55-57°C. À point : 60-63°C. Poulet : 65°C min. Porc : 63°C.' }, { type: 'tip', text: 'Un thermomètre sonde est indispensable. Les temps sont indicatifs, la température à cœur est la vérité.' }]) },
+  { slug: 'levures-fermentation', title: 'Levures et fermentation', description: 'Comprendre la fermentation pour un pain parfait.', category: 'baking', skill: 'baking', difficulty: 3, icon: 'activity', gemCost: 50, xpReward: 180, order: 8, content: JSON.stringify([{ type: 'text', text: 'La fermentation : des micro-organismes transforment les sucres en CO₂ et alcool, ce qui fait lever les pâtes.' }, { type: 'technique', title: 'Activer la levure', text: 'Eau tiède (30-35°C) + pincée de sucre + levure → attendre 10 min pour voir les bulles.' }, { type: 'technique', title: 'Le pointage', text: 'Première fermentation : la pâte double en 1-2h à température ambiante, ou 8-12h au réfrigérateur (pousse lente = plus de goût).' }, { type: 'tip', text: 'Ne jamais mettre levure et sel en contact direct : le sel tue la levure.' }]) },
+];
+
+async function seedLessons() {
+  const count = await prisma.lesson.count();
+  if (count > 0) return;
+  await prisma.lesson.createMany({ data: LESSON_SEED });
+  console.log(`🎓 ${LESSON_SEED.length} leçons créées`);
+}
+
 app.listen(PORT, () => {
   console.log(`🔥 CulinaRPG en ligne sur http://localhost:${PORT}`);
-  // Complète en tâche de fond les photos manquantes (si le seed a tourné hors ligne)
+  seedLessons().catch(console.error);
   if (process.env.RESOLVE_IMAGES_ON_START !== 'false') {
     setTimeout(() => resolveRecipeImages(prisma, { log: (m) => console.log(m) }).catch(() => {}), 3000);
   }
-  // Purge des sessions expirées
   setInterval(() => prisma.session.deleteMany({ where: { expiresAt: { lt: new Date() } } }).catch(() => {}), 6 * 3600 * 1000).unref();
 });
 

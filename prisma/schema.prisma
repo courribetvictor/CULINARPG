@@ -1,4 +1,5 @@
-// CulinaRPG — Prisma schema (PostgreSQL : Neon en production)
+// CulinaRPG — Prisma schema
+// PostgreSQL en production (Neon.tech gratuit) et en local.
 
 generator client {
   provider = "prisma-client-js"
@@ -11,21 +12,23 @@ datasource db {
 
 model User {
   id             Int      @id @default(autoincrement())
-  username       String   @unique // identifiant public (@pseudo), minuscules
+  username       String   @unique
   email          String   @unique
   passwordHash   String
   displayName    String
   bio            String   @default("")
-  avatar         String   @default("🧑‍🍳") // emoji
-  avatarColor    String   @default("violet") // clé de dégradé
-  avatarImage    String?  // photo (data URL JPEG redimensionnée côté client)
-  chefClass      String?  // compétence de prédilection : +10 % d'XP
-  selectedTitle  String?  // titre choisi parmi les titres débloqués
+  avatar         String   @default("🧑‍🍳")
+  avatarColor    String   @default("violet")
+  avatarImage    String?
+  chefClass      String?
+  selectedTitle  String?
   onboarded      Boolean  @default(false)
   totalXp        Int      @default(0)
+  gems           Int      @default(0)
+  isPro          Boolean  @default(false)
   currentStreak  Int      @default(0)
   bestStreak     Int      @default(0)
-  lastActiveDate String?  // YYYY-MM-DD (jour local du serveur)
+  lastActiveDate String?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -33,6 +36,9 @@ model User {
   skills             UserSkill[]
   dailyCompletions   UserDailyCompletion[]
   recipeCompletions  UserRecipeCompletion[]
+  quests             UserQuest[]
+  lessonUnlocks      UserLessonUnlock[]
+  customRecipes      Recipe[]  @relation("CustomRecipes")
 }
 
 model Session {
@@ -105,6 +111,9 @@ model Recipe {
   skillRewards String   // JSON: { knife: 40, fire: 25, ... }
   mainSkill    String   @default("prep") // compétence la plus récompensée (filtre)
   totalXp      Int
+  isCustom     Boolean  @default(false)
+  creatorId    Int?
+  creator      User?    @relation("CustomRecipes", fields: [creatorId], references: [id], onDelete: SetNull)
   createdAt    DateTime @default(now())
 
   completions UserRecipeCompletion[]
@@ -125,4 +134,52 @@ model UserRecipeCompletion {
   recipe Recipe @relation(fields: [recipeId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+}
+
+model UserQuest {
+  id           Int       @id @default(autoincrement())
+  userId       Int
+  title        String
+  description  String    @default("")
+  skill        String
+  icon         String    @default("target")
+  targetCount  Int       @default(1)
+  currentCount Int       @default(0)
+  completed    Boolean   @default(false)
+  completedAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Lesson {
+  id          Int    @id @default(autoincrement())
+  slug        String @unique
+  title       String
+  description String
+  category    String
+  skill       String
+  difficulty  Int
+  icon        String
+  content     String
+  gemCost     Int    @default(0)
+  xpReward    Int    @default(80)
+  order       Int    @default(0)
+
+  unlocks UserLessonUnlock[]
+}
+
+model UserLessonUnlock {
+  id         Int      @id @default(autoincrement())
+  userId     Int
+  lessonId   Int
+  unlockedAt DateTime @default(now())
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lesson Lesson @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, lessonId])
 }

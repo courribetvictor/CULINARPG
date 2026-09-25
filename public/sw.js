@@ -1,5 +1,5 @@
 // CulinaRPG — service worker : app shell hors ligne, API toujours en réseau.
-const VERSION = 'culinarpg-v2';
+const VERSION = 'culinarpg-v3';
 const SHELL = ['/', '/app.js', '/manifest.webmanifest', '/icons/icon.svg', '/icons/icon-192.png'];
 
 self.addEventListener('install', (event) => {

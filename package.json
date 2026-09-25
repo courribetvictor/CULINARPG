@@ -9,10 +9,12 @@
     "dev": "node --watch server.js",
     "postinstall": "prisma generate",
     "db:push": "prisma db push",
+    "db:generate": "prisma generate",
     "db:seed": "node prisma/seed.js",
-    "images": "node lib/images.js",
     "setup": "npm install && prisma db push && node prisma/seed.js",
-    "render-build": "npm ci && prisma db push --skip-generate && node prisma/seed.js"
+    "setup:ps": "npm install ; prisma db push ; node prisma/seed.js",
+    "images": "node lib/images.js",
+    "render-build": "npm ci && npx prisma generate && npx prisma db push && node prisma/seed.js"
   },
   "engines": {
     "node": ">=20"
@@ -23,6 +25,7 @@
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.21.2",
-    "prisma": "^6.19.3"
+    "prisma": "^6.19.3",
+    "stripe": "^22.6.2"
   }
 }
