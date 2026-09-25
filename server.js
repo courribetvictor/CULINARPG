@@ -1162,9 +1162,20 @@ async function seedLessons() {
   console.log(`🎓 ${LESSON_SEED.length} leçons mises à jour`);
 }
 
+// Comptes Pro permanents : liste de usernames séparés par virgule dans PRO_USERNAMES
+async function grantProToFixedAccounts() {
+  const raw = (process.env.PRO_USERNAMES || '').trim();
+  if (!raw) return;
+  const usernames = raw.split(',').map((u) => u.trim().toLowerCase()).filter(Boolean);
+  if (!usernames.length) return;
+  const { count } = await prisma.user.updateMany({ where: { username: { in: usernames }, isPro: false }, data: { isPro: true } });
+  if (count) console.log(`⭐ ${count} compte(s) Pro activé(s) : ${usernames.join(', ')}`);
+}
+
 app.listen(PORT, () => {
   console.log(`🔥 CulinaRPG en ligne sur http://localhost:${PORT}`);
   seedLessons().catch(console.error);
+  grantProToFixedAccounts().catch(console.error);
   if (process.env.RESOLVE_IMAGES_ON_START !== 'false') {
     setTimeout(() => resolveRecipeImages(prisma, { log: (m) => console.log(m) }).catch(() => {}), 3000);
   }

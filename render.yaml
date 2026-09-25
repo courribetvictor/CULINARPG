@@ -50,3 +50,5 @@ services:
         sync: false   # code d'invitation pour s'inscrire (vide = inscriptions ouvertes)
       - key: CONTACT_EMAIL
         sync: false   # e-mail affiché sur la page /privacy
+      - key: PRO_USERNAMES
+        sync: false   # usernames Pro permanents séparés par virgule (ex: viccrr,arthur.ddag,comptedexamen)
