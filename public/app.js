@@ -632,6 +632,7 @@
               <div class="mt-2 flex flex-wrap justify-center sm:justify-start gap-2">
                 <span class="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold bg-orange-50 border border-orange-200 text-orange-700"><i data-lucide="crown" class="w-3.5 h-3.5"></i>${esc(p.title)}</span>
                 ${cls ? `<span class="inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-extrabold bg-gradient-to-r ${cls.grad} text-white shadow-sm">${cls.emoji} ${esc(clsName || cls.name)}</span>` : ''}
+                ${p.isPro ? `<span class="inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-extrabold bg-gradient-to-r from-amber-400 to-orange-500 text-white shadow-sm">⭐ Pro</span>` : ''}
                 <span class="inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-bold bg-cyan-50 border border-cyan-200 text-cyan-700">💎 ${fmt(p.gems || 0)} gemmes</span>
                 <span class="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold" style="background:${leagueForXp(p.totalXp).hex}18;border:1px solid ${leagueForXp(p.totalXp).hex}55;color:${leagueForXp(p.totalXp).hex}">${leagueForXp(p.totalXp).emoji} ${leagueForXp(p.totalXp).name}</span>
               </div>
@@ -1549,7 +1550,7 @@
                     ${p.avatarImage ? `<img src="${esc(p.avatarImage)}" class="w-full h-full object-cover">` : esc(p.avatar || '🧑‍🍳')}
                   </div>
                   <div class="flex-1 min-w-0">
-                    <p class="font-bold text-sm truncate ${isMe ? 'text-orange-700' : 'text-stone-800'}">${esc(p.displayName)}${isMe ? ' (moi)' : ''}</p>
+                    <p class="font-bold text-sm truncate ${isMe ? 'text-orange-700' : 'text-stone-800'}">${esc(p.displayName)}${isMe ? ' (moi)' : ''}${p.isPro ? ' <span class="text-amber-500 text-xs">⭐</span>' : ''}</p>
                     <p class="text-xs text-stone-400 font-semibold">Niv. ${p.level} · ${fmt(p.totalXp)} XP</p>
                   </div>
                   <span class="text-xl" title="${l.name}">${l.emoji}</span>

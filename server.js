@@ -635,7 +635,7 @@ app.post('/api/recipes/:id/cook', wrap(async (req, res) => {
 // ---------------------------------------------------------------------------
 app.get('/api/ranked', wrap(async (req, res) => {
   const players = await prisma.user.findMany({
-    select: { id: true, username: true, displayName: true, avatar: true, avatarColor: true, avatarImage: true, totalXp: true, chefClass: true },
+    select: { id: true, username: true, displayName: true, avatar: true, avatarColor: true, avatarImage: true, totalXp: true, chefClass: true, isPro: true },
     orderBy: { totalXp: 'desc' },
     take: 50,
   });
