@@ -2611,6 +2611,10 @@
     const friendRemove = t.closest('[data-friend-remove]');
     if (friendRemove) { e.stopPropagation(); handleFriendRemove(friendRemove.dataset.friendRemove); return; }
 
+    // Boutons dans le sheet de leçon (avant le early return sheet-root)
+    const lessonCompleteEarly = t.closest('[data-lesson-complete]');
+    if (lessonCompleteEarly) { e.stopPropagation(); handleLessonComplete(lessonCompleteEarly.dataset.lessonComplete); return; }
+
     if (t.closest('#sheet-root') || t.closest('#page-root') || t.closest('#modal-root')) return;
     const navBtn = t.closest('.nav-btn');
     if (navBtn) { haptic(); setTab(navBtn.dataset.tab); return; }
