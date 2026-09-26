@@ -1,0 +1,8 @@
+[{
+      "relation": ["delegate_permission/common.handle_all_urls"],
+      "target": {
+        "namespace": "android_app",
+        "package_name": "com.courribetvictor.culinarpg",
+        "sha256_cert_fingerprints": ["EB:8D:5F:B3:B1:D2:7B:47:68:EA:C7:E3:01:74:D0:0C:3C:22:39:F2:DC:C6:91:A4:B5:F3:A3:BE:35:F1:3D:D3"]
+      }
+    }]

@@ -695,6 +695,19 @@ app.get('/api/ranked', wrap(async (req, res) => {
 // ---------------------------------------------------------------------------
 const FRIEND_USER_SELECT = { id: true, username: true, displayName: true, avatar: true, avatarColor: true, avatarImage: true, totalXp: true, isPro: true, chefClass: true };
 
+// Recherche de joueurs par pseudo partiel (min 2 caractères)
+app.get('/api/users/search', wrap(async (req, res) => {
+  const q = String(req.query.q || '').toLowerCase().trim();
+  if (!q || q.length < 2) return res.json([]);
+  const users = await prisma.user.findMany({
+    where: { username: { contains: q }, NOT: { id: req.user.id } },
+    select: { username: true, displayName: true, avatar: true, avatarColor: true, avatarImage: true, totalXp: true, isPro: true },
+    take: 6,
+    orderBy: { totalXp: 'desc' },
+  });
+  res.json(users);
+}));
+
 app.get('/api/users/:username', wrap(async (req, res) => {
   const target = await prisma.user.findUnique({
     where: { username: String(req.params.username).toLowerCase() },
@@ -710,15 +723,17 @@ app.get('/api/users/:username', wrap(async (req, res) => {
     prisma.userRecipeCompletion.count({ where: { userId: target.id, recipe: { category: { in: ['Desserts', 'Boulangerie', 'Dessert'] } } } }),
   ]);
 
-  const friendship = await prisma.friendship.findFirst({
-    where: { OR: [{ requesterId: req.user.id, addresseeId: target.id }, { requesterId: target.id, addresseeId: req.user.id }] },
-  });
   let friendStatus = 'none';
-  if (friendship) {
-    if (friendship.status === 'accepted') friendStatus = 'friends';
-    else if (friendship.requesterId === req.user.id) friendStatus = 'pending_sent';
-    else friendStatus = 'pending_received';
-  }
+  try {
+    const friendship = await prisma.friendship.findFirst({
+      where: { OR: [{ requesterId: req.user.id, addresseeId: target.id }, { requesterId: target.id, addresseeId: req.user.id }] },
+    });
+    if (friendship) {
+      if (friendship.status === 'accepted') friendStatus = 'friends';
+      else if (friendship.requesterId === req.user.id) friendStatus = 'pending_sent';
+      else friendStatus = 'pending_received';
+    }
+  } catch (_) { /* table Friendship pas encore créée, on continue avec 'none' */ }
 
   res.json({
     id: target.id, username: target.username, displayName: target.displayName,
@@ -1304,7 +1319,7 @@ app.listen(PORT, () => {
   const dbHost = (process.env.DATABASE_URL || 'sqlite').replace(/\/\/[^@]+@/, '//***@').split('/')[2] || 'local';
   console.log(`🔥 CulinaRPG en ligne sur http://localhost:${PORT} — DB: ${dbHost}`);
 
-  // Pré-chauffe la connexion Neon dès le démarrage (évite le cold-start sur la 1re requête)
+  // Pré-chauffe la connexion Neon + crée les tables manquantes
   (async () => {
     for (let i = 1; i <= 5; i++) {
       try {
@@ -1314,8 +1329,28 @@ app.listen(PORT, () => {
       } catch (err) {
         console.log(`⏳ DB tentative ${i}/5 (${err.code || err.message?.slice(0, 40)}) — attente ${i * 4}s...`);
         if (i < 5) await new Promise((r) => setTimeout(r, i * 4000));
-        else console.error('❌ DB inaccessible après 5 tentatives — vérifier DATABASE_URL dans Render et l\'état du projet Neon.');
+        else { console.error('❌ DB inaccessible après 5 tentatives.'); return; }
       }
+    }
+    // S'assure que la table Friendship existe (créée après le déploiement initial)
+    try {
+      await _baseClient.$executeRaw`
+        CREATE TABLE IF NOT EXISTS "Friendship" (
+          "id" SERIAL NOT NULL,
+          "requesterId" INTEGER NOT NULL,
+          "addresseeId" INTEGER NOT NULL,
+          "status" TEXT NOT NULL DEFAULT 'pending',
+          "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          CONSTRAINT "Friendship_pkey" PRIMARY KEY ("id"),
+          CONSTRAINT "Friendship_requesterId_addresseeId_key" UNIQUE ("requesterId", "addresseeId"),
+          CONSTRAINT "Friendship_requesterId_fkey" FOREIGN KEY ("requesterId") REFERENCES "User"("id") ON DELETE CASCADE,
+          CONSTRAINT "Friendship_addresseeId_fkey" FOREIGN KEY ("addresseeId") REFERENCES "User"("id") ON DELETE CASCADE
+        )
+      `;
+      await _baseClient.$executeRaw`CREATE INDEX IF NOT EXISTS "Friendship_addresseeId_idx" ON "Friendship"("addresseeId")`;
+      console.log('✅ Table Friendship prête.');
+    } catch (err) {
+      console.log('⚠️ Friendship table check:', err.message?.slice(0, 80));
     }
   })();
 

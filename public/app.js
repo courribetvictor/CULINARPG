@@ -1928,11 +1928,14 @@
     <div class="max-w-lg mx-auto space-y-5 rise pb-4">
       ${sectionTitle('users', 'Amis', 'Retrouve tes amis et défie-les.')}
 
-      <div class="glass rounded-2xl p-3 flex gap-2">
-        <input id="friend-search" type="text" placeholder="Rechercher un joueur par pseudo…" class="flex-1 bg-transparent text-sm outline-none text-stone-800 placeholder-stone-400 min-w-0" autocomplete="off" autocorrect="off" />
-        <button id="friend-search-btn" class="press shrink-0 w-9 h-9 rounded-xl bg-orange-500 grid place-items-center text-white hover:bg-orange-600 transition-colors">
-          <i data-lucide="search" class="w-4 h-4"></i>
-        </button>
+      <div class="relative">
+        <div class="glass rounded-2xl p-3 flex gap-2">
+          <input id="friend-search" type="text" placeholder="Recherche par pseudo…" class="flex-1 bg-transparent text-sm outline-none text-stone-800 placeholder-stone-400 min-w-0" autocomplete="off" autocorrect="off" autocapitalize="none" />
+          <button id="friend-search-btn" class="press shrink-0 w-9 h-9 rounded-xl bg-orange-500 grid place-items-center text-white hover:bg-orange-600 transition-colors">
+            <i data-lucide="search" class="w-4 h-4"></i>
+          </button>
+        </div>
+        <div id="friend-suggestions" class="hidden absolute z-20 left-0 right-0 mt-1 bg-white/95 backdrop-blur rounded-2xl shadow-xl border border-stone-100 overflow-hidden"></div>
       </div>
 
       ${pendingReceived.length ? `
@@ -1978,11 +1981,57 @@
     </div>`;
     icons();
 
-    $('#friend-search-btn').addEventListener('click', () => {
-      const q = $('#friend-search').value.trim();
-      if (q) openPublicProfile(q);
+    const searchInput = $('#friend-search');
+    const suggestBox = $('#friend-suggestions');
+    let searchTimer = null;
+
+    function hideSuggestions() { suggestBox.classList.add('hidden'); suggestBox.innerHTML = ''; }
+
+    function showSuggestions(users) {
+      if (!users.length) { hideSuggestions(); return; }
+      const grad = (c) => c === 'violet' ? 'from-violet-500 to-fuchsia-500' : c === 'emerald' ? 'from-emerald-400 to-teal-600' : c === 'amber' ? 'from-amber-400 to-orange-600' : c === 'cyan' ? 'from-cyan-400 to-blue-600' : c === 'pink' ? 'from-pink-400 to-rose-600' : 'from-slate-500 to-slate-800';
+      suggestBox.innerHTML = users.map((u) => `
+        <button data-suggest="${esc(u.username)}" class="w-full flex items-center gap-3 px-4 py-3 hover:bg-orange-50 active:bg-orange-100 transition-colors border-b border-stone-100 last:border-0 text-left">
+          <div class="w-9 h-9 shrink-0 rounded-full overflow-hidden">
+            ${u.avatarImage ? `<img src="${esc(u.avatarImage)}" class="w-full h-full object-cover">` : `<div class="w-full h-full bg-gradient-to-br ${grad(u.avatarColor)} grid place-items-center text-lg">${esc(u.avatar || '🧑‍🍳')}</div>`}
+          </div>
+          <div class="flex-1 min-w-0">
+            <p class="font-bold text-sm text-stone-800 truncate">${esc(u.displayName)}${u.isPro ? ' <span class="text-amber-500 text-xs">⭐</span>' : ''}</p>
+            <p class="text-xs text-stone-400">@${esc(u.username)}</p>
+          </div>
+          <i data-lucide="chevron-right" class="w-4 h-4 text-stone-300 shrink-0"></i>
+        </button>`).join('');
+      suggestBox.classList.remove('hidden');
+      icons();
+    }
+
+    searchInput.addEventListener('input', () => {
+      clearTimeout(searchTimer);
+      const q = searchInput.value.trim();
+      if (!q || q.length < 2) { hideSuggestions(); return; }
+      searchTimer = setTimeout(async () => {
+        try { showSuggestions(await api(`/api/users/search?q=${encodeURIComponent(q)}`)); }
+        catch (_) { hideSuggestions(); }
+      }, 280);
     });
-    $('#friend-search').addEventListener('keydown', (e) => { if (e.key === 'Enter') { const q = e.target.value.trim(); if (q) openPublicProfile(q); } });
+
+    suggestBox.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-suggest]');
+      if (!btn) return;
+      hideSuggestions();
+      searchInput.value = '';
+      openPublicProfile(btn.dataset.suggest);
+    });
+
+    $('#friend-search-btn').addEventListener('click', () => {
+      const q = searchInput.value.trim();
+      if (q) { hideSuggestions(); openPublicProfile(q); }
+    });
+    searchInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { const q = e.target.value.trim(); if (q) { hideSuggestions(); openPublicProfile(q); } }
+      if (e.key === 'Escape') hideSuggestions();
+    });
+    document.addEventListener('click', (e) => { if (!e.target.closest('.relative')) hideSuggestions(); }, { once: false });
   }
 
   async function openPublicProfile(username) {
@@ -2548,6 +2597,20 @@
       if (m) showAuth(m.dataset.authMode);
       return;
     }
+    // Profils & Amis (gérés avant le return sheet/modal car ces boutons sont dans le sheet)
+    const openProfile = t.closest('[data-open-profile]');
+    if (openProfile) { e.stopPropagation(); openPublicProfile(openProfile.dataset.openProfile); return; }
+    const friendAdd = t.closest('[data-friend-add]');
+    if (friendAdd) { e.stopPropagation(); handleFriendAdd(friendAdd.dataset.friendAdd); return; }
+    const friendAccept = t.closest('[data-friend-accept]');
+    if (friendAccept) { e.stopPropagation(); handleFriendAccept(friendAccept.dataset.friendAccept); return; }
+    const friendDecline = t.closest('[data-friend-decline]');
+    if (friendDecline) { e.stopPropagation(); handleFriendRemove(friendDecline.dataset.friendDecline); return; }
+    const friendCancel = t.closest('[data-friend-cancel]');
+    if (friendCancel) { e.stopPropagation(); handleFriendRemove(friendCancel.dataset.friendCancel); return; }
+    const friendRemove = t.closest('[data-friend-remove]');
+    if (friendRemove) { e.stopPropagation(); handleFriendRemove(friendRemove.dataset.friendRemove); return; }
+
     if (t.closest('#sheet-root') || t.closest('#page-root') || t.closest('#modal-root')) return;
     const navBtn = t.closest('.nav-btn');
     if (navBtn) { haptic(); setTab(navBtn.dataset.tab); return; }
@@ -2608,19 +2671,6 @@
     const questDelete = t.closest('[data-quest-delete]');
     if (questDelete) { e.stopPropagation(); handleQuestDelete(questDelete.dataset.questDelete); return; }
 
-    // Profils & Amis
-    const openProfile = t.closest('[data-open-profile]');
-    if (openProfile) { e.stopPropagation(); openPublicProfile(openProfile.dataset.openProfile); return; }
-    const friendAdd = t.closest('[data-friend-add]');
-    if (friendAdd) { e.stopPropagation(); handleFriendAdd(friendAdd.dataset.friendAdd); return; }
-    const friendAccept = t.closest('[data-friend-accept]');
-    if (friendAccept) { e.stopPropagation(); handleFriendAccept(friendAccept.dataset.friendAccept); return; }
-    const friendDecline = t.closest('[data-friend-decline]');
-    if (friendDecline) { e.stopPropagation(); handleFriendRemove(friendDecline.dataset.friendDecline); return; }
-    const friendCancel = t.closest('[data-friend-cancel]');
-    if (friendCancel) { e.stopPropagation(); handleFriendRemove(friendCancel.dataset.friendCancel); return; }
-    const friendRemove = t.closest('[data-friend-remove]');
-    if (friendRemove) { e.stopPropagation(); handleFriendRemove(friendRemove.dataset.friendRemove); return; }
   });
 
   document.addEventListener('keydown', (e) => {
