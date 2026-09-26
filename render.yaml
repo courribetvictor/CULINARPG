@@ -15,8 +15,8 @@ services:
     plan: free
     region: frankfurt
     branch: main
-    buildCommand: npm ci && npx prisma generate
-    startCommand: node scripts/start.js
+    buildCommand: npm ci && npx prisma generate && npx prisma db push --skip-generate --accept-data-loss
+    startCommand: node server.js
     healthCheckPath: /api/health
     autoDeploy: true
     envVars:

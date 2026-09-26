@@ -16,7 +16,30 @@ const _dbUrl = (process.env.DATABASE_URL || '');
 if (_dbUrl && !_dbUrl.includes('connect_timeout')) {
   process.env.DATABASE_URL = _dbUrl + (_dbUrl.includes('?') ? '&' : '?') + 'connect_timeout=30';
 }
-const prisma = new PrismaClient();
+
+// Retry automatique sur erreurs de connexion Neon (P1001 / P1002 = cold-start)
+const _baseClient = new PrismaClient();
+const prisma = _baseClient.$extends({
+  query: {
+    $allModels: {
+      async $allOperations({ args, query }) {
+        for (let attempt = 1; attempt <= 4; attempt++) {
+          try {
+            return await query(args);
+          } catch (err) {
+            const isRetryable = err.code === 'P1001' || err.code === 'P1002' || err.code === 'P1008';
+            if (isRetryable && attempt < 4) {
+              console.log(`⏳ DB retry ${attempt}/3 (${err.code}) — attente ${attempt * 3}s...`);
+              await new Promise((r) => setTimeout(r, attempt * 3000));
+            } else {
+              throw err;
+            }
+          }
+        }
+      },
+    },
+  },
+});
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
 const APP_URL = (process.env.APP_URL || `http://localhost:${PORT}`).replace(/\/$/, '');
@@ -1032,9 +1055,13 @@ app.get(/^\/(?!api).*/, (req, res) => res.sendFile(path.join(__dirname, 'public'
 app.use((err, req, res, next) => {
   if (err.type === 'entity.too.large') return res.status(413).json({ error: 'Requête trop volumineuse.' });
   if (err.type === 'entity.parse.failed') return res.status(400).json({ error: 'JSON invalide.' });
-  console.error(err);
+  console.error('[ERR]', err.code || '', err.message || err);
   // Erreurs Stripe : renvoyer le message pour faciliter le diagnostic
   if (err.type && err.type.startsWith('Stripe')) return res.status(402).json({ error: err.message });
+  // Base de données inaccessible (Neon cold-start / réseau)
+  if (err.code === 'P1001' || err.code === 'P1002' || err.code === 'P1008') {
+    return res.status(503).json({ error: 'Service temporairement indisponible. Réessayez dans quelques secondes.' });
+  }
   return res.status(err.status || 500).json({ error: 'Erreur serveur' });
 });
 
@@ -1276,6 +1303,22 @@ async function grantProToFixedAccounts() {
 app.listen(PORT, () => {
   const dbHost = (process.env.DATABASE_URL || 'sqlite').replace(/\/\/[^@]+@/, '//***@').split('/')[2] || 'local';
   console.log(`🔥 CulinaRPG en ligne sur http://localhost:${PORT} — DB: ${dbHost}`);
+
+  // Pré-chauffe la connexion Neon dès le démarrage (évite le cold-start sur la 1re requête)
+  (async () => {
+    for (let i = 1; i <= 5; i++) {
+      try {
+        await _baseClient.$queryRaw`SELECT 1`;
+        console.log('✅ Base de données connectée.');
+        break;
+      } catch (err) {
+        console.log(`⏳ DB tentative ${i}/5 (${err.code || err.message?.slice(0, 40)}) — attente ${i * 4}s...`);
+        if (i < 5) await new Promise((r) => setTimeout(r, i * 4000));
+        else console.error('❌ DB inaccessible après 5 tentatives — vérifier DATABASE_URL dans Render et l\'état du projet Neon.');
+      }
+    }
+  })();
+
   seedLessons().catch(console.error);
   grantProToFixedAccounts().catch(console.error);
   if (process.env.RESOLVE_IMAGES_ON_START !== 'false') {
