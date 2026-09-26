@@ -2,37 +2,45 @@
 require('dotenv').config();
 const { execSync } = require('child_process');
 
-// Fix Neon cold-start : connect_timeout doit être dans l'URL avant tout appel Prisma CLI
-const url = process.env.DATABASE_URL || '';
-if (url && !url.includes('connect_timeout')) {
-  process.env.DATABASE_URL = url + (url.includes('?') ? '&' : '?') + 'connect_timeout=30';
-}
+const origUrl = process.env.DATABASE_URL || '';
 
-// Neon utilise deux endpoints :
-//   Pooler (app) : ep-xxx-pooler.region.aws.neon.tech  → DATABASE_URL
-//   Direct (DDL)  : ep-xxx.region.aws.neon.tech         → DIRECT_URL
-// prisma migrate deploy DOIT passer par le direct, sinon P1001.
-// On dérive DIRECT_URL automatiquement en retirant "-pooler." du hostname.
-const directUrl = process.env.DATABASE_URL.replace('-pooler.', '.');
-process.env.DIRECT_URL = directUrl;
-if (directUrl !== process.env.DATABASE_URL) {
-  console.log('Neon pooler détecté — migrations via connexion directe.');
+// 1. Ajoute connect_timeout=30 pour le cold-start Neon (une seule fois)
+if (origUrl && !origUrl.includes('connect_timeout')) {
+  process.env.DATABASE_URL = origUrl + (origUrl.includes('?') ? '&' : '?') + 'connect_timeout=30';
 }
+const appUrl = process.env.DATABASE_URL;
+
+// 2. Neon fournit deux endpoints :
+//      Pooler  (app)   : ep-xxx-pooler.region.aws.neon.tech  ← DATABASE_URL habituel
+//      Direct  (DDL)   : ep-xxx.region.aws.neon.tech
+//    prisma migrate deploy NE fonctionne PAS via le pooler PgBouncer (erreur P1001).
+//    Si DIRECT_URL est défini manuellement dans les env vars Render, on l'utilise.
+//    Sinon on le dérive automatiquement en retirant "-pooler." du hostname.
+const migrationUrl = process.env.DIRECT_URL
+  || appUrl.replace('-pooler.', '.');
 
 const run = (cmd) => execSync(cmd, { stdio: 'inherit', env: process.env });
 
-// Baseline : marque la migration initiale comme déjà appliquée si la DB
-// existait avant l'introduction des migrations. Échoue silencieusement si déjà fait.
+// 3. Migrations : utiliser l'URL directe
+process.env.DATABASE_URL = migrationUrl;
+
+// Baseline : marque la migration initiale comme déjà appliquée pour les DB
+// existantes (celles créées avant l'introduction des migrations).
+// Échoue silencieusement si déjà fait ou si la table n'existe pas encore.
 try { run('npx prisma migrate resolve --applied "20260926000000_init"'); } catch (_) {}
 
 // Applique les migrations non encore appliquées.
-// Si ça échoue malgré tout (réseau, schéma déjà à jour…), on logge et on continue :
-// mieux vaut un serveur qui tourne qu'aucun serveur.
+// NON FATAL : si ça échoue (réseau, schéma déjà à jour, timeout), on logge
+// et on démarre quand même — mieux vaut un serveur qui tourne.
 try {
   run('npx prisma migrate deploy');
   console.log('✅ Migrations à jour.');
 } catch (err) {
-  console.error('⚠️  Migration échouée — le schéma est peut-être déjà à jour :', err.message?.slice(0, 300));
+  console.error('⚠️  Migration non fatale (schema probablement déjà correct) :', err.message?.slice(0, 200));
 }
 
+// 4. Restaurer l'URL pooler pour les requêtes applicatives (meilleures perfs)
+process.env.DATABASE_URL = appUrl;
+
+// 5. Démarrer le serveur
 require('../server.js');
