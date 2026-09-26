@@ -16,7 +16,7 @@ services:
     region: frankfurt
     branch: main
     buildCommand: npm ci && npx prisma generate
-    startCommand: npx prisma db push && node server.js
+    startCommand: sh scripts/start.sh
     healthCheckPath: /api/health
     autoDeploy: true
     envVars:
