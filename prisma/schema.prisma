@@ -38,7 +38,9 @@ model User {
   recipeCompletions  UserRecipeCompletion[]
   quests             UserQuest[]
   lessonUnlocks      UserLessonUnlock[]
-  customRecipes      Recipe[]  @relation("CustomRecipes")
+  customRecipes      Recipe[]       @relation("CustomRecipes")
+  sentRequests       Friendship[]   @relation("SentRequests")
+  receivedRequests   Friendship[]   @relation("ReceivedRequests")
 }
 
 model Session {
@@ -170,6 +172,20 @@ model Lesson {
   order       Int    @default(0)
 
   unlocks UserLessonUnlock[]
+}
+
+model Friendship {
+  id          Int      @id @default(autoincrement())
+  requesterId Int
+  addresseeId Int
+  status      String   @default("pending") // pending | accepted
+  createdAt   DateTime @default(now())
+
+  requester User @relation("SentRequests",     fields: [requesterId], references: [id], onDelete: Cascade)
+  addressee User @relation("ReceivedRequests", fields: [addresseeId], references: [id], onDelete: Cascade)
+
+  @@unique([requesterId, addresseeId])
+  @@index([addresseeId])
 }
 
 model UserLessonUnlock {
