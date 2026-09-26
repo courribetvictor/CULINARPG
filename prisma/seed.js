@@ -145,6 +145,28 @@ const DAILIES = [
   { slug: 'dough-work', title: 'Travail de la pâte', description: 'Pétris une pâte 10 minutes (pain, pizza, brioche…).', icon: 'croissant', skill: 'baking', xpReward: 35 },
   { slug: 'clean-station', title: 'Plan de travail impeccable', description: 'Nettoie ton poste en cuisinant, pas après.', icon: 'sparkle', skill: 'prep', xpReward: 15 },
   { slug: 'spice-discovery', title: 'Découverte d\'épice', description: 'Utilise une épice que tu n\'as jamais essayée.', icon: 'flask-conical', skill: 'seasoning', xpReward: 25 },
+  // Nouvelles tâches quotidiennes — plus de variété
+  { slug: 'julienne-challenge', title: 'Défi julienne', description: 'Taille une carotte et une courgette en julienne parfaite 3×3 mm.', icon: 'ruler', skill: 'knife', xpReward: 30 },
+  { slug: 'stock-warmup', title: 'Bouillon express', description: 'Fais un bouillon de légumes en 30 minutes avec ce que tu as dans le frigo.', icon: 'soup', skill: 'fire', xpReward: 25 },
+  { slug: 'acid-balance', title: 'Équilibre acide', description: 'Ajoute un élément acide (citron, vinaigre) pour révéler un plat fade.', icon: 'lemon', skill: 'seasoning', xpReward: 20 },
+  { slug: 'emulsion-drill', title: 'Émulsion parfaite', description: 'Fais une vinaigrette émulsionnée qui tient sans se séparer.', icon: 'droplets', skill: 'seasoning', xpReward: 25 },
+  { slug: 'thermometer-check', title: 'Cuisson au thermomètre', description: 'Cuis une protéine et vérifie sa température à cœur avec un thermomètre.', icon: 'thermometer', skill: 'fire', xpReward: 35 },
+  { slug: 'herb-garden', title: 'Herbes fraîches', description: 'Utilise 3 herbes fraîches différentes dans un même plat.', icon: 'leaf', skill: 'seasoning', xpReward: 20 },
+  { slug: 'recipe-read', title: 'Lecture complète', description: 'Lis une recette entière de bout en bout avant de commencer à cuisiner.', icon: 'book-open', skill: 'prep', xpReward: 15 },
+  { slug: 'sauce-from-scratch', title: 'Sauce maison', description: 'Réalise une sauce complète à partir de rien (pas de sachet, pas de cube).', icon: 'chef-hat', skill: 'fire', xpReward: 40 },
+  { slug: 'knife-sharpening', title: 'Affûtage rituel', description: 'Affûte ton couteau au fusil avant de cuisiner aujourd\'hui.', icon: 'zap', skill: 'knife', xpReward: 15 },
+  { slug: 'zero-waste-cook', title: 'Cuisine zéro déchet', description: 'Utilise les parures et épluchures d\'un légume dans le plat (chips, bouillon…).', icon: 'recycle', skill: 'prep', xpReward: 25 },
+  { slug: 'egg-poach', title: 'Œuf poché parfait', description: 'Poche un œuf : blanc bien formé autour d\'un jaune coulant.', icon: 'egg', skill: 'fire', xpReward: 30 },
+  { slug: 'caramel-attempt', title: 'Caramel maison', description: 'Réalise un caramel à sec jusqu\'à la couleur ambre sans le brûler.', icon: 'candy', skill: 'baking', xpReward: 40 },
+  { slug: 'umami-boost', title: 'Boost umami', description: 'Ajoute un ingrédient umami (parmesan, champignon sec, sauce soja) à un plat.', icon: 'star', skill: 'seasoning', xpReward: 20 },
+  { slug: 'fish-skin-crispy', title: 'Peau de poisson croustillante', description: 'Cuis un filet de poisson avec la peau, côté peau d\'abord, jusqu\'à ce qu\'elle soit craquante.', icon: 'fish', skill: 'fire', xpReward: 35 },
+  { slug: 'brunoise-precision', title: 'Brunoise de précision', description: 'Réalise une brunoise (3×3×3 mm) régulière sur un légume au choix.', icon: 'grid-3x3', skill: 'knife', xpReward: 30 },
+  { slug: 'batch-prep', title: 'Préparation batch', description: 'Prépare en avance 3 ingrédients de base pour les repas de la semaine.', icon: 'package', skill: 'prep', xpReward: 30 },
+  { slug: 'bread-kneading', title: 'Pétrissage du pain', description: 'Pétris une pâte à pain 10 min jusqu\'au test du voile (s\'étire sans se déchirer).', icon: 'wheat', skill: 'baking', xpReward: 35 },
+  { slug: 'resting-meat', title: 'Repos de la viande', description: 'Laisse reposer ta viande 5 minutes minimum après cuisson avant de couper.', icon: 'clock', skill: 'fire', xpReward: 15 },
+  { slug: 'spice-toasting', title: 'Torréfaction des épices', description: 'Torréfie des épices entières à sec dans une poêle avant de les moudre.', icon: 'flame', skill: 'seasoning', xpReward: 25 },
+  { slug: 'plating-practice', title: 'Entraînement au dressage', description: 'Dresse ton plat avec soin : élément décentré, sauce en trait, finition fraîche.', icon: 'palette', skill: 'prep', xpReward: 20 },
+  { slug: 'fermentation-check', title: 'Test de fermentation', description: 'Vérifie la fermentation d\'une pâte levée avec le test du doigt fariné.', icon: 'activity', skill: 'baking', xpReward: 25 },
 ];
 
 async function main() {
