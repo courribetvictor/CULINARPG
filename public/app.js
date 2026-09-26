@@ -1253,7 +1253,6 @@
       <div class="sticky bottom-0 p-4 pb-safe bg-gradient-to-t from-white via-white/95 to-transparent">
         <button data-cook="${r.id}" class="cook-btn ${primaryBtn}"><i data-lucide="chef-hat" class="w-5 h-5"></i>J'ai cuisiné cette recette !</button>
       </div>`, { flush: true });
-    sheet.addEventListener('click', (e) => { const c = e.target.closest('[data-cook]'); if (c) { closeSheet(); startCookingSession(c.dataset.cook); } });
   }
 
   async function cookRecipe(btn) {
@@ -2611,9 +2610,11 @@
     const friendRemove = t.closest('[data-friend-remove]');
     if (friendRemove) { e.stopPropagation(); handleFriendRemove(friendRemove.dataset.friendRemove); return; }
 
-    // Boutons dans le sheet de leçon (avant le early return sheet-root)
+    // Boutons dans les sheets (avant le early return sheet-root)
     const lessonCompleteEarly = t.closest('[data-lesson-complete]');
     if (lessonCompleteEarly) { e.stopPropagation(); handleLessonComplete(lessonCompleteEarly.dataset.lessonComplete); return; }
+    const cookEarly = t.closest('[data-cook]');
+    if (cookEarly) { e.stopPropagation(); startCookingSession(cookEarly.dataset.cook); return; }
 
     if (t.closest('#sheet-root') || t.closest('#page-root') || t.closest('#modal-root')) return;
     const navBtn = t.closest('.nav-btn');
