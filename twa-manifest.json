@@ -1,0 +1,43 @@
+{
+  "packageId": "com.culinarpg.app",
+  "host": "culinarpg.onrender.com",
+  "name": "CulinaRPG",
+  "launcherName": "CulinaRPG",
+  "display": "standalone",
+  "orientation": "portrait",
+  "themeColor": "#f97316",
+  "navigationColor": "#f97316",
+  "navigationColorDark": "#1c1917",
+  "navigationDividerColor": "#f97316",
+  "navigationDividerColorDark": "#1c1917",
+  "backgroundColor": "#ffffff",
+  "enableNotifications": false,
+  "startUrl": "/#profile",
+  "iconUrl": "https://culinarpg.onrender.com/icons/icon-512.png",
+  "maskableIconUrl": "https://culinarpg.onrender.com/icons/icon-maskable-512.png",
+  "monochromeIconUrl": "https://culinarpg.onrender.com/icons/icon.svg",
+  "manifestUrl": "https://culinarpg.onrender.com/manifest.webmanifest",
+  "generatorApp": "bubblewrap-cli",
+  "webManifestUrl": "https://culinarpg.onrender.com/manifest.webmanifest",
+  "isChromeOSOnly": false,
+  "isMetaQuest": false,
+  "fullScopeUrl": "https://culinarpg.onrender.com/",
+  "minSdkVersion": 21,
+  "targetSdkVersion": 34,
+  "versionCode": 1,
+  "versionName": "1.0.0",
+  "features": {
+    "locationDelegation": { "enabled": false },
+    "playBilling": { "enabled": true }
+  },
+  "enableSiteSettingsShortcut": true,
+  "isTrustedWebActivity": true,
+  "serviceAccountJsonFile": "",
+  "fingerprints": [],
+  "useBrowserOnChromeOS": false,
+  "signing": {
+    "keystore": "android.keystore",
+    "keyAlias": "culinarpg",
+    "keyFullName": "culinarpg"
+  }
+}

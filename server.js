@@ -1,4 +1,4 @@
-/* eslint-disable no-console */
+﻿/* eslint-disable no-console */
 require('dotenv').config();
 const path = require('path');
 const express = require('express');
@@ -29,7 +29,7 @@ const prisma = _baseClient.$extends({
           } catch (err) {
             const isRetryable = err.code === 'P1001' || err.code === 'P1002' || err.code === 'P1008';
             if (isRetryable && attempt < 4) {
-              console.log(`⏳ DB retry ${attempt}/3 (${err.code}) — attente ${attempt * 3}s...`);
+              console.log(`â³ DB retry ${attempt}/3 (${err.code}) â€” attente ${attempt * 3}s...`);
               await new Promise((r) => setTimeout(r, attempt * 3000));
             } else {
               throw err;
@@ -48,10 +48,29 @@ const stripe = process.env.STRIPE_SECRET_KEY
   ? require('stripe')(process.env.STRIPE_SECRET_KEY)
   : null;
 
+// Google Play Billing â€” Android Publisher API
+// Env vars: GOOGLE_SERVICE_ACCOUNT_JSON (service account JSON string)
+//           TWA_PACKAGE_NAME (Android package name, ex: com.culinarpg.app)
+const PLAY_PACKAGE = (process.env.TWA_PACKAGE_NAME || process.env.GOOGLE_PLAY_PACKAGE_NAME || '').trim();
+let androidPublisher = null;
+if (process.env.GOOGLE_SERVICE_ACCOUNT_JSON && PLAY_PACKAGE) {
+  try {
+    const { google } = require('googleapis');
+    const auth = new google.auth.GoogleAuth({
+      credentials: JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON),
+      scopes: ['https://www.googleapis.com/auth/androidpublisher'],
+    });
+    androidPublisher = google.androidpublisher({ version: 'v3', auth });
+    console.log('[Play] Google Play Billing initialisÃ© pour', PLAY_PACKAGE);
+  } catch (e) {
+    console.error('[Play] Erreur init Google Play Billing:', e.message);
+  }
+}
+
 if (process.env.TRUST_PROXY) app.set('trust proxy', Number(process.env.TRUST_PROXY) || process.env.TRUST_PROXY);
 app.disable('x-powered-by');
 
-// CORS uniquement si des origines sont explicitement autorisées (ex. app mobile empaquetée)
+// CORS uniquement si des origines sont explicitement autorisÃ©es (ex. app mobile empaquetÃ©e)
 if (process.env.CORS_ORIGINS) {
   app.use(cors({ origin: process.env.CORS_ORIGINS.split(',').map((s) => s.trim()), credentials: true }));
 }
@@ -91,7 +110,7 @@ function yesterdayKey() {
   return dayKey(d);
 }
 
-// Streak affiché : cassé si la dernière activité date d'avant-hier ou plus
+// Streak affichÃ© : cassÃ© si la derniÃ¨re activitÃ© date d'avant-hier ou plus
 function effectiveStreak(user) {
   if (!user.lastActiveDate) return 0;
   return [dayKey(), yesterdayKey()].includes(user.lastActiveDate) ? user.currentStreak : 0;
@@ -104,7 +123,7 @@ function nextStreak(user) {
 }
 
 // ---------------------------------------------------------------------------
-// Présentation du joueur
+// PrÃ©sentation du joueur
 // ---------------------------------------------------------------------------
 function displayTitle(user, skills) {
   if (user.selectedTitle) {
@@ -136,17 +155,17 @@ function publicUser(user, skills = []) {
 }
 
 // ---------------------------------------------------------------------------
-// Attribution d'XP (transaction) + détection des level-ups
+// Attribution d'XP (transaction) + dÃ©tection des level-ups
 // ---------------------------------------------------------------------------
 async function grantXp(userId, baseRewards, extraOps = []) {
   return prisma.$transaction(async (tx) => {
-    // Verrou de ligne : deux gains simultanés pour le même joueur s'exécutent l'un après l'autre
+    // Verrou de ligne : deux gains simultanÃ©s pour le mÃªme joueur s'exÃ©cutent l'un aprÃ¨s l'autre
     // (sinon chacun lirait l'ancien total d'XP et l'un des deux gains serait perdu)
     await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${userId} FOR UPDATE`;
     const user = await tx.user.findUnique({ where: { id: userId }, include: { skills: true } });
     const before = Object.fromEntries(user.skills.map((s) => [s.skill, s.xp]));
 
-    // Bonus de classe (+10 % sur la compétence de prédilection)
+    // Bonus de classe (+10 % sur la compÃ©tence de prÃ©dilection)
     const rewards = { ...baseRewards };
     let classBonus = 0;
     if (user.chefClass && rewards[user.chefClass]) {
@@ -206,22 +225,22 @@ async function grantXp(userId, baseRewards, extraOps = []) {
 }
 
 // ---------------------------------------------------------------------------
-// Badges (calculés à la volée)
+// Badges (calculÃ©s Ã  la volÃ©e)
 // ---------------------------------------------------------------------------
 function computeBadges({ user, skills, recipesCooked, uniqueRecipes, dailiesDone, bakingCooks }) {
   const lvl = globalLevel(user.totalXp);
   const maxSkill = Math.max(...skills.map((s) => skillLevel(s.xp)));
   const allSkills3 = skills.every((s) => skillLevel(s.xp) >= 3);
   return [
-    { id: 'first-dish', name: 'Premier Plat', description: 'Cuisine ta première recette', icon: 'utensils', unlocked: recipesCooked >= 1 },
+    { id: 'first-dish', name: 'Premier Plat', description: 'Cuisine ta premiÃ¨re recette', icon: 'utensils', unlocked: recipesCooked >= 1 },
     { id: 'line-cook', name: 'Cuisinier de Ligne', description: 'Cuisine 10 recettes', icon: 'chef-hat', unlocked: recipesCooked >= 10 },
-    { id: 'explorer', name: 'Explorateur', description: 'Cuisine 25 recettes différentes', icon: 'compass', unlocked: uniqueRecipes >= 25 },
-    { id: 'disciplined', name: 'Discipliné', description: 'Complète 20 dailies', icon: 'calendar-check', unlocked: dailiesDone >= 20 },
+    { id: 'explorer', name: 'Explorateur', description: 'Cuisine 25 recettes diffÃ©rentes', icon: 'compass', unlocked: uniqueRecipes >= 25 },
+    { id: 'disciplined', name: 'DisciplinÃ©', description: 'ComplÃ¨te 20 dailies', icon: 'calendar-check', unlocked: dailiesDone >= 20 },
     { id: 'on-fire', name: 'En Feu', description: 'Streak de 3 jours', icon: 'flame', unlocked: user.bestStreak >= 3 },
-    { id: 'unstoppable', name: 'Inarrêtable', description: 'Streak de 7 jours', icon: 'zap', unlocked: user.bestStreak >= 7 },
-    { id: 'baker', name: 'Mitron', description: '5 recettes de pâtisserie ou boulangerie', icon: 'croissant', unlocked: bakingCooks >= 5 },
-    { id: 'specialist', name: 'Spécialiste', description: 'Une compétence niveau 5', icon: 'award', unlocked: maxSkill >= 5 },
-    { id: 'all-rounder', name: 'Polyvalent', description: 'Toutes les compétences niveau 3', icon: 'hexagon', unlocked: allSkills3 },
+    { id: 'unstoppable', name: 'InarrÃªtable', description: 'Streak de 7 jours', icon: 'zap', unlocked: user.bestStreak >= 7 },
+    { id: 'baker', name: 'Mitron', description: '5 recettes de pÃ¢tisserie ou boulangerie', icon: 'croissant', unlocked: bakingCooks >= 5 },
+    { id: 'specialist', name: 'SpÃ©cialiste', description: 'Une compÃ©tence niveau 5', icon: 'award', unlocked: maxSkill >= 5 },
+    { id: 'all-rounder', name: 'Polyvalent', description: 'Toutes les compÃ©tences niveau 3', icon: 'hexagon', unlocked: allSkills3 },
     { id: 'sous-chef', name: 'Sous-Chef', description: 'Atteins le niveau global 8', icon: 'crown', unlocked: lvl >= 8 },
   ];
 }
@@ -252,7 +271,7 @@ function serializeRecipe(r, cookedCount = 0) {
 // ===========================================================================
 app.get('/api/health', (req, res) => res.json({ ok: true }));
 
-// Mode privé : si SIGNUP_CODE est défini, l'inscription exige ce code d'invitation
+// Mode privÃ© : si SIGNUP_CODE est dÃ©fini, l'inscription exige ce code d'invitation
 const SIGNUP_CODE = (process.env.SIGNUP_CODE || '').trim();
 
 app.get('/api/meta', (req, res) => {
@@ -264,7 +283,7 @@ app.get('/api/meta', (req, res) => {
   });
 });
 
-// Liaison app Android (TWA) ↔ site : sans ce fichier, Android affiche une barre d'adresse
+// Liaison app Android (TWA) â†” site : sans ce fichier, Android affiche une barre d'adresse
 app.get('/.well-known/assetlinks.json', (req, res) => {
   const pkg = (process.env.TWA_PACKAGE_NAME || '').trim();
   const fingerprints = (process.env.TWA_SHA256_FINGERPRINTS || '').split(',').map((s) => s.trim()).filter(Boolean);
@@ -274,7 +293,7 @@ app.get('/.well-known/assetlinks.json', (req, res) => {
   }] : []);
 });
 
-// Politique de confidentialité (exigée par le Play Store) — e-mail de contact via CONTACT_EMAIL
+// Politique de confidentialitÃ© (exigÃ©e par le Play Store) â€” e-mail de contact via CONTACT_EMAIL
 const PRIVACY_HTML = require('fs').readFileSync(path.join(__dirname, 'views', 'privacy.html'), 'utf8');
 app.get(['/privacy', '/privacy.html'], (req, res) => {
   const contact = (process.env.CONTACT_EMAIL || 'contact@exemple.fr').replace(/[<>"&]/g, '');
@@ -294,7 +313,7 @@ app.post('/api/auth/signup', authLimiter, wrap(async (req, res) => {
     return res.status(403).json({ error: 'Code d\'invitation invalide.', field: 'inviteCode' });
   }
 
-  if (!auth.USERNAME_RE.test(username)) return badRequest(res, 'Pseudo : 3 à 20 caractères (lettres, chiffres, « _ » ou « . »).', 'username');
+  if (!auth.USERNAME_RE.test(username)) return badRequest(res, 'Pseudo : 3 Ã  20 caractÃ¨res (lettres, chiffres, Â« _ Â» ou Â« . Â»).', 'username');
   if (!auth.EMAIL_RE.test(email)) return badRequest(res, 'Adresse e-mail invalide.', 'email');
   const pwError = auth.validatePassword(password);
   if (pwError) return badRequest(res, pwError, 'password');
@@ -302,8 +321,8 @@ app.post('/api/auth/signup', authLimiter, wrap(async (req, res) => {
   const taken = await prisma.user.findFirst({ where: { OR: [{ username }, { email }] }, select: { username: true } });
   if (taken) {
     return res.status(409).json(taken.username === username
-      ? { error: 'Ce pseudo est déjà pris.', field: 'username' }
-      : { error: 'Un compte existe déjà avec cet e-mail.', field: 'email' });
+      ? { error: 'Ce pseudo est dÃ©jÃ  pris.', field: 'username' }
+      : { error: 'Un compte existe dÃ©jÃ  avec cet e-mail.', field: 'email' });
   }
 
   let user;
@@ -319,7 +338,7 @@ app.post('/api/auth/signup', authLimiter, wrap(async (req, res) => {
     });
   } catch (err) {
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
-      return res.status(409).json({ error: 'Pseudo ou e-mail déjà utilisé.' });
+      return res.status(409).json({ error: 'Pseudo ou e-mail dÃ©jÃ  utilisÃ©.' });
     }
     throw err;
   }
@@ -349,7 +368,7 @@ app.post('/api/auth/logout', wrap(async (req, res) => {
 }));
 
 // ===========================================================================
-// Routes protégées
+// Routes protÃ©gÃ©es
 // ===========================================================================
 app.use('/api', (req, res, next) => (req.path.startsWith('/auth/') ? next() : requireAuth(req, res, next)));
 
@@ -399,21 +418,21 @@ app.patch('/api/user/profile', wrap(async (req, res) => {
 
   if (b.displayName !== undefined) {
     const v = String(b.displayName).trim();
-    if (v.length < 1 || v.length > 30) return badRequest(res, 'Nom affiché : 1 à 30 caractères.', 'displayName');
+    if (v.length < 1 || v.length > 30) return badRequest(res, 'Nom affichÃ© : 1 Ã  30 caractÃ¨res.', 'displayName');
     data.displayName = v;
   }
   if (b.username !== undefined) {
     const v = auth.normUsername(b.username);
-    if (!auth.USERNAME_RE.test(v)) return badRequest(res, 'Pseudo : 3 à 20 caractères (lettres, chiffres, « _ » ou « . »).', 'username');
+    if (!auth.USERNAME_RE.test(v)) return badRequest(res, 'Pseudo : 3 Ã  20 caractÃ¨res (lettres, chiffres, Â« _ Â» ou Â« . Â»).', 'username');
     if (v !== req.user.username) {
       const taken = await prisma.user.findUnique({ where: { username: v }, select: { id: true } });
-      if (taken) return res.status(409).json({ error: 'Ce pseudo est déjà pris.', field: 'username' });
+      if (taken) return res.status(409).json({ error: 'Ce pseudo est dÃ©jÃ  pris.', field: 'username' });
     }
     data.username = v;
   }
   if (b.bio !== undefined) {
     const v = String(b.bio).trim();
-    if (v.length > 160) return badRequest(res, 'Bio : 160 caractères maximum.', 'bio');
+    if (v.length > 160) return badRequest(res, 'Bio : 160 caractÃ¨res maximum.', 'bio');
     data.bio = v;
   }
   if (b.avatar !== undefined) {
@@ -440,7 +459,7 @@ app.patch('/api/user/profile', wrap(async (req, res) => {
     else {
       const skills = await prisma.userSkill.findMany({ where: { userId: req.user.id } });
       const t = titlesFor(req.user.totalXp, skills).find((x) => x.name === b.selectedTitle);
-      if (!t || !t.unlocked) return badRequest(res, 'Ce titre n\'est pas encore débloqué.', 'selectedTitle');
+      if (!t || !t.unlocked) return badRequest(res, 'Ce titre n\'est pas encore dÃ©bloquÃ©.', 'selectedTitle');
       data.selectedTitle = t.name;
     }
   }
@@ -458,7 +477,7 @@ app.post('/api/user/password', authLimiter, wrap(async (req, res) => {
   const pwError = auth.validatePassword(newPassword);
   if (pwError) return badRequest(res, pwError, 'newPassword');
   await prisma.user.update({ where: { id: req.user.id }, data: { passwordHash: await auth.hashPassword(newPassword) } });
-  // Déconnecte les autres appareils
+  // DÃ©connecte les autres appareils
   await prisma.session.deleteMany({ where: { userId: req.user.id, NOT: { id: req.sessionId } } });
   res.json({ ok: true });
 }));
@@ -492,7 +511,7 @@ app.get('/api/dailies', wrap(async (req, res) => {
 
 app.post('/api/dailies/:id/complete', wrap(async (req, res) => {
   const task = await prisma.dailyTask.findUnique({ where: { id: Number(req.params.id) || 0 } });
-  if (!task) return res.status(404).json({ error: 'Tâche introuvable' });
+  if (!task) return res.status(404).json({ error: 'TÃ¢che introuvable' });
 
   const date = dayKey();
   try {
@@ -501,9 +520,9 @@ app.post('/api/dailies/:id/complete', wrap(async (req, res) => {
     ]);
     return res.json({ ...result, task: { id: task.id, title: task.title } });
   } catch (err) {
-    // Contrainte unique (userId, dailyTaskId, date) : la transaction est annulée, pas d'XP en double
+    // Contrainte unique (userId, dailyTaskId, date) : la transaction est annulÃ©e, pas d'XP en double
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
-      return res.status(409).json({ error: 'Déjà complétée aujourd\'hui' });
+      return res.status(409).json({ error: 'DÃ©jÃ  complÃ©tÃ©e aujourd\'hui' });
     }
     throw err;
   }
@@ -575,7 +594,7 @@ app.get('/api/recipes', wrap(async (req, res) => {
 }));
 
 // ---------------------------------------------------------------------------
-// Recettes personnelles (privées)
+// Recettes personnelles (privÃ©es)
 // ---------------------------------------------------------------------------
 app.get('/api/recipes/mine', wrap(async (req, res) => {
   const recipes = await prisma.recipe.findMany({
@@ -588,12 +607,12 @@ app.get('/api/recipes/mine', wrap(async (req, res) => {
 
 app.post('/api/recipes/mine', wrap(async (req, res) => {
   if (!req.user.isPro) {
-    return res.status(403).json({ error: 'La création de recettes est réservée aux membres Pro ⭐', proRequired: true });
+    return res.status(403).json({ error: 'La crÃ©ation de recettes est rÃ©servÃ©e aux membres Pro â­', proRequired: true });
   }
   const { title, category, timeMinutes, ingredients, instructions, imageUrl } = req.body;
   if (!title?.trim()) return res.status(400).json({ error: 'Le titre est requis', field: 'title' });
-  if (!Array.isArray(ingredients) || !ingredients.length) return res.status(400).json({ error: 'Au moins un ingrédient requis', field: 'ingredients' });
-  if (!instructions?.trim()) return res.status(400).json({ error: 'Les étapes sont requises', field: 'instructions' });
+  if (!Array.isArray(ingredients) || !ingredients.length) return res.status(400).json({ error: 'Au moins un ingrÃ©dient requis', field: 'ingredients' });
+  if (!instructions?.trim()) return res.status(400).json({ error: 'Les Ã©tapes sont requises', field: 'instructions' });
 
   const { difficulty, skillRewards, totalXp } = computeRewards({
     instructions,
@@ -617,7 +636,7 @@ app.post('/api/recipes/mine', wrap(async (req, res) => {
       mainSkill,
       totalXp,
       searchText: normalizeText(title),
-      emoji: '🍽️',
+      emoji: 'ðŸ½ï¸',
       imageUrl: imageUrl || null,
       isCustom: true,
       creatorId: req.user.id,
@@ -640,7 +659,7 @@ app.delete('/api/recipes/mine/:id', wrap(async (req, res) => {
 // ---------------------------------------------------------------------------
 app.post('/api/planner/generate', wrap(async (req, res) => {
   if (!req.user.isPro) {
-    return res.status(403).json({ error: 'Le planificateur est réservé aux membres Pro ⭐', proRequired: true });
+    return res.status(403).json({ error: 'Le planificateur est rÃ©servÃ© aux membres Pro â­', proRequired: true });
   }
   const { categories, maxTime } = req.body || {};
   const DAYS = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi', 'Dimanche'];
@@ -658,7 +677,7 @@ app.post('/api/planner/generate', wrap(async (req, res) => {
     },
   });
   if (pool.length < 7) {
-    return res.status(400).json({ error: 'Pas assez de recettes disponibles avec ces critères' });
+    return res.status(400).json({ error: 'Pas assez de recettes disponibles avec ces critÃ¨res' });
   }
 
   const shuffled = pool.sort(() => Math.random() - 0.5).slice(0, 7);
@@ -687,7 +706,7 @@ app.get('/api/recipes/:id', wrap(async (req, res) => {
   const recipe = await prisma.recipe.findUnique({ where: { id: Number(req.params.id) || 0 } });
   if (!recipe) return res.status(404).json({ error: 'Recette introuvable' });
   if (!req.user.isPro && !recipe.isCustom && recipe.difficulty >= 4) {
-    return res.status(403).json({ error: 'Cette recette est réservée aux membres Pro ⭐', proRequired: true });
+    return res.status(403).json({ error: 'Cette recette est rÃ©servÃ©e aux membres Pro â­', proRequired: true });
   }
   const cookedCount = await prisma.userRecipeCompletion.count({ where: { userId: req.user.id, recipeId: recipe.id } });
   res.json(serializeRecipe(recipe, cookedCount));
@@ -697,7 +716,7 @@ app.post('/api/recipes/:id/cook', wrap(async (req, res) => {
   const recipe = await prisma.recipe.findUnique({ where: { id: Number(req.params.id) || 0 } });
   if (!recipe) return res.status(404).json({ error: 'Recette introuvable' });
 
-  // Rendements décroissants : chaque répétition rapporte moins (min 40 %)
+  // Rendements dÃ©croissants : chaque rÃ©pÃ©tition rapporte moins (min 40 %)
   const timesCooked = await prisma.userRecipeCompletion.count({ where: { userId: req.user.id, recipeId: recipe.id } });
   const multiplier = Math.max(0.4, 1 - timesCooked * 0.2);
   const rewards = Object.fromEntries(
@@ -744,7 +763,7 @@ app.get('/api/ranked', wrap(async (req, res) => {
     me,
     myLeague: userLeague(req.user.totalXp),
     leagues: LEAGUES,
-    season: { number: 1, name: 'Saison des Premières Flammes', endDate: '2025-12-31' },
+    season: { number: 1, name: 'Saison des PremiÃ¨res Flammes', endDate: '2025-12-31' },
   });
 }));
 
@@ -753,7 +772,7 @@ app.get('/api/ranked', wrap(async (req, res) => {
 // ---------------------------------------------------------------------------
 const FRIEND_USER_SELECT = { id: true, username: true, displayName: true, avatar: true, avatarColor: true, avatarImage: true, totalXp: true, isPro: true, chefClass: true };
 
-// Recherche de joueurs par pseudo partiel (min 2 caractères)
+// Recherche de joueurs par pseudo partiel (min 2 caractÃ¨res)
 app.get('/api/users/search', wrap(async (req, res) => {
   const q = String(req.query.q || '').toLowerCase().trim();
   if (!q || q.length < 2) return res.json([]);
@@ -791,7 +810,7 @@ app.get('/api/users/:username', wrap(async (req, res) => {
       else if (friendship.requesterId === req.user.id) friendStatus = 'pending_sent';
       else friendStatus = 'pending_received';
     }
-  } catch (_) { /* table Friendship pas encore créée, on continue avec 'none' */ }
+  } catch (_) { /* table Friendship pas encore crÃ©Ã©e, on continue avec 'none' */ }
 
   res.json({
     id: target.id, username: target.username, displayName: target.displayName,
@@ -828,11 +847,11 @@ app.get('/api/friends', wrap(async (req, res) => {
 app.post('/api/friends/:username', wrap(async (req, res) => {
   const target = await prisma.user.findUnique({ where: { username: String(req.params.username).toLowerCase() } });
   if (!target) return res.status(404).json({ error: 'Joueur introuvable' });
-  if (target.id === req.user.id) return res.status(400).json({ error: 'Tu ne peux pas t\'ajouter toi-même' });
+  if (target.id === req.user.id) return res.status(400).json({ error: 'Tu ne peux pas t\'ajouter toi-mÃªme' });
   const existing = await prisma.friendship.findFirst({
     where: { OR: [{ requesterId: req.user.id, addresseeId: target.id }, { requesterId: target.id, addresseeId: req.user.id }] },
   });
-  if (existing) return res.status(409).json({ error: 'Demande déjà existante' });
+  if (existing) return res.status(409).json({ error: 'Demande dÃ©jÃ  existante' });
   await prisma.friendship.create({ data: { requesterId: req.user.id, addresseeId: target.id } });
   res.json({ ok: true });
 }));
@@ -857,7 +876,7 @@ app.delete('/api/friends/:username', wrap(async (req, res) => {
 }));
 
 // ---------------------------------------------------------------------------
-// Quêtes personnalisées
+// QuÃªtes personnalisÃ©es
 // ---------------------------------------------------------------------------
 app.get('/api/quests', wrap(async (req, res) => {
   const quests = await prisma.userQuest.findMany({
@@ -870,8 +889,8 @@ app.get('/api/quests', wrap(async (req, res) => {
 app.post('/api/quests', wrap(async (req, res) => {
   const { title, description, skill, targetCount, icon } = req.body || {};
   const t = String(title || '').trim();
-  if (t.length < 2 || t.length > 60) return badRequest(res, 'Titre : 2 à 60 caractères.', 'title');
-  if (!SKILLS.includes(skill)) return badRequest(res, 'Compétence invalide.', 'skill');
+  if (t.length < 2 || t.length > 60) return badRequest(res, 'Titre : 2 Ã  60 caractÃ¨res.', 'title');
+  if (!SKILLS.includes(skill)) return badRequest(res, 'CompÃ©tence invalide.', 'skill');
   const target = Math.min(50, Math.max(1, parseInt(targetCount, 10) || 1));
   const quest = await prisma.userQuest.create({
     data: {
@@ -888,8 +907,8 @@ app.post('/api/quests', wrap(async (req, res) => {
 
 app.post('/api/quests/:id/log', wrap(async (req, res) => {
   const quest = await prisma.userQuest.findFirst({ where: { id: Number(req.params.id) || 0, userId: req.user.id } });
-  if (!quest) return res.status(404).json({ error: 'Quête introuvable' });
-  if (quest.completed) return res.status(409).json({ error: 'Quête déjà complétée' });
+  if (!quest) return res.status(404).json({ error: 'QuÃªte introuvable' });
+  if (quest.completed) return res.status(409).json({ error: 'QuÃªte dÃ©jÃ  complÃ©tÃ©e' });
   const newCount = quest.currentCount + 1;
   const completing = newCount >= quest.targetCount;
   await prisma.userQuest.update({
@@ -907,12 +926,12 @@ app.post('/api/quests/:id/log', wrap(async (req, res) => {
 
 app.delete('/api/quests/:id', wrap(async (req, res) => {
   const deleted = await prisma.userQuest.deleteMany({ where: { id: Number(req.params.id) || 0, userId: req.user.id } });
-  if (!deleted.count) return res.status(404).json({ error: 'Quête introuvable' });
+  if (!deleted.count) return res.status(404).json({ error: 'QuÃªte introuvable' });
   res.json({ ok: true });
 }));
 
 // ---------------------------------------------------------------------------
-// Leçons
+// LeÃ§ons
 // ---------------------------------------------------------------------------
 app.get('/api/lessons', wrap(async (req, res) => {
   const [lessons, unlocks] = await Promise.all([
@@ -931,17 +950,17 @@ app.get('/api/lessons', wrap(async (req, res) => {
 
 app.get('/api/lessons/:id', wrap(async (req, res) => {
   const lesson = await prisma.lesson.findUnique({ where: { id: Number(req.params.id) || 0 } });
-  if (!lesson) return res.status(404).json({ error: 'Leçon introuvable' });
+  if (!lesson) return res.status(404).json({ error: 'LeÃ§on introuvable' });
   const unlock = await prisma.userLessonUnlock.findUnique({ where: { userId_lessonId: { userId: req.user.id, lessonId: lesson.id } } });
   const accessible = lesson.gemCost === 0 || req.user.isPro || !!unlock;
-  if (!accessible) return res.status(403).json({ error: 'Leçon verrouillée', gemCost: lesson.gemCost, gems: req.user.gems });
+  if (!accessible) return res.status(403).json({ error: 'LeÃ§on verrouillÃ©e', gemCost: lesson.gemCost, gems: req.user.gems });
   res.json({ ...lesson, content: JSON.parse(lesson.content), completed: !!unlock?.completed });
 }));
 
-// Déverrouille l'accès à une leçon (déduit les gemmes, pas d'XP)
+// DÃ©verrouille l'accÃ¨s Ã  une leÃ§on (dÃ©duit les gemmes, pas d'XP)
 app.post('/api/lessons/:id/unlock', wrap(async (req, res) => {
   const lesson = await prisma.lesson.findUnique({ where: { id: Number(req.params.id) || 0 } });
-  if (!lesson) return res.status(404).json({ error: 'Leçon introuvable' });
+  if (!lesson) return res.status(404).json({ error: 'LeÃ§on introuvable' });
   const existing = await prisma.userLessonUnlock.findUnique({ where: { userId_lessonId: { userId: req.user.id, lessonId: lesson.id } } });
   if (existing) return res.json({ ok: true, alreadyUnlocked: true, gems: req.user.gems });
   if (lesson.gemCost > 0 && !req.user.isPro) {
@@ -955,14 +974,14 @@ app.post('/api/lessons/:id/unlock', wrap(async (req, res) => {
   res.json({ ok: true, gems: updatedUser.gems });
 }));
 
-// Marque une leçon comme complétée et accorde l'XP
+// Marque une leÃ§on comme complÃ©tÃ©e et accorde l'XP
 app.post('/api/lessons/:id/complete', wrap(async (req, res) => {
   const lesson = await prisma.lesson.findUnique({ where: { id: Number(req.params.id) || 0 } });
-  if (!lesson) return res.status(404).json({ error: 'Leçon introuvable' });
+  if (!lesson) return res.status(404).json({ error: 'LeÃ§on introuvable' });
   const unlock = await prisma.userLessonUnlock.findUnique({ where: { userId_lessonId: { userId: req.user.id, lessonId: lesson.id } } });
   const accessible = lesson.gemCost === 0 || req.user.isPro || !!unlock;
-  if (!accessible) return res.status(403).json({ error: 'Leçon verrouillée' });
-  if (unlock?.completed) return res.status(409).json({ error: 'Leçon déjà complétée' });
+  if (!accessible) return res.status(403).json({ error: 'LeÃ§on verrouillÃ©e' });
+  if (unlock?.completed) return res.status(409).json({ error: 'LeÃ§on dÃ©jÃ  complÃ©tÃ©e' });
   if (!unlock) {
     await prisma.userLessonUnlock.create({ data: { userId: req.user.id, lessonId: lesson.id, completed: true, completedAt: new Date() } });
   } else {
@@ -996,12 +1015,12 @@ async function fulfillPro(userId) {
 async function fulfillLesson(userId, lesson) {
   const exists = await prisma.userLessonUnlock.findUnique({ where: { userId_lessonId: { userId, lessonId: lesson.id } } });
   if (exists) return null;
-  // Juste déverrouiller l'accès — l'XP est accordé quand le joueur clique "J'ai compris !"
+  // Juste dÃ©verrouiller l'accÃ¨s â€” l'XP est accordÃ© quand le joueur clique "J'ai compris !"
   await prisma.userLessonUnlock.create({ data: { userId, lessonId: lesson.id } });
   return { ok: true };
 }
 
-// Helper : crée une session Stripe et renvoie { url } ou une erreur lisible
+// Helper : crÃ©e une session Stripe et renvoie { url } ou une erreur lisible
 async function stripeSession(params, res, createFn) {
   try {
     const session = await createFn(params);
@@ -1022,7 +1041,7 @@ app.post('/api/stripe/checkout/gems', requireAuth, wrap(async (req, res) => {
   }
   return stripeSession({}, res, () => stripe.checkout.sessions.create({
     mode: 'payment',
-    line_items: [{ quantity: 1, price_data: { currency: 'eur', unit_amount: pack.unitAmount, product_data: { name: `CulinaRPG · ${pack.label}`, description: `${pack.gems} gemmes pour débloquer des leçons premium` } } }],
+    line_items: [{ quantity: 1, price_data: { currency: 'eur', unit_amount: pack.unitAmount, product_data: { name: `CulinaRPG Â· ${pack.label}`, description: `${pack.gems} gemmes pour dÃ©bloquer des leÃ§ons premium` } } }],
     metadata: { type: 'gems', userId: String(req.user.id), gemPack: req.body.pack, gemAmount: String(pack.gems) },
     success_url: `${APP_URL}/?payment=success&type=gems&earned=${pack.gems}`,
     cancel_url: `${APP_URL}/#profile`,
@@ -1038,7 +1057,7 @@ app.post('/api/stripe/checkout/pro', requireAuth, wrap(async (req, res) => {
   }
   return stripeSession({}, res, () => stripe.checkout.sessions.create({
     mode: 'subscription',
-    line_items: [{ quantity: 1, price_data: { currency: 'eur', unit_amount: plan.unitAmount, recurring: { interval: plan.interval }, product_data: { name: `CulinaRPG Pro · ${plan.label}`, description: 'Accès illimité à toutes les leçons et fonctionnalités avancées' } } }],
+    line_items: [{ quantity: 1, price_data: { currency: 'eur', unit_amount: plan.unitAmount, recurring: { interval: plan.interval }, product_data: { name: `CulinaRPG Pro Â· ${plan.label}`, description: 'AccÃ¨s illimitÃ© Ã  toutes les leÃ§ons et fonctionnalitÃ©s avancÃ©es' } } }],
     metadata: { type: 'pro', userId: String(req.user.id), plan: req.body?.plan || 'annual' },
     success_url: `${APP_URL}/?payment=success&type=pro`,
     cancel_url: `${APP_URL}/#pro`,
@@ -1048,24 +1067,24 @@ app.post('/api/stripe/checkout/pro', requireAuth, wrap(async (req, res) => {
 // POST /api/stripe/checkout/lesson
 app.post('/api/stripe/checkout/lesson', requireAuth, wrap(async (req, res) => {
   const lesson = await prisma.lesson.findUnique({ where: { id: Number(req.body?.lessonId) || 0 } });
-  if (!lesson) return res.status(404).json({ error: 'Leçon introuvable' });
+  if (!lesson) return res.status(404).json({ error: 'LeÃ§on introuvable' });
   if (!stripe) {
     const result = await fulfillLesson(req.user.id, lesson);
-    if (!result) return res.status(409).json({ error: 'Leçon déjà débloquée' });
+    if (!result) return res.status(409).json({ error: 'LeÃ§on dÃ©jÃ  dÃ©bloquÃ©e' });
     return res.json({ simulated: true });
   }
   const existing = await prisma.userLessonUnlock.findUnique({ where: { userId_lessonId: { userId: req.user.id, lessonId: lesson.id } } });
-  if (existing) return res.status(409).json({ error: 'Leçon déjà débloquée' });
+  if (existing) return res.status(409).json({ error: 'LeÃ§on dÃ©jÃ  dÃ©bloquÃ©e' });
   return stripeSession({}, res, () => stripe.checkout.sessions.create({
     mode: 'payment',
-    line_items: [{ quantity: 1, price_data: { currency: 'eur', unit_amount: 99, product_data: { name: `CulinaRPG · Leçon : ${lesson.title}`, description: lesson.description } } }],
+    line_items: [{ quantity: 1, price_data: { currency: 'eur', unit_amount: 99, product_data: { name: `CulinaRPG Â· LeÃ§on : ${lesson.title}`, description: lesson.description } } }],
     metadata: { type: 'lesson', userId: String(req.user.id), lessonId: String(lesson.id), lessonSkill: lesson.skill, lessonXp: String(lesson.xpReward) },
     success_url: `${APP_URL}/?payment=success&type=lesson`,
     cancel_url: `${APP_URL}/#lessons`,
   }));
 }));
 
-// Backward-compat simulation aliases (utilisés quand Stripe n'est pas configuré)
+// Backward-compat simulation aliases (utilisÃ©s quand Stripe n'est pas configurÃ©)
 app.post('/api/shop/gems', requireAuth, wrap(async (req, res) => {
   const pack = GEM_PACKS[req.body?.pack];
   if (!pack) return badRequest(res, 'Pack invalide');
@@ -1078,16 +1097,16 @@ app.post('/api/shop/pro', requireAuth, wrap(async (req, res) => {
 }));
 app.post('/api/lessons/:id/buy', requireAuth, wrap(async (req, res) => {
   const lesson = await prisma.lesson.findUnique({ where: { id: Number(req.params.id) || 0 } });
-  if (!lesson) return res.status(404).json({ error: 'Leçon introuvable' });
+  if (!lesson) return res.status(404).json({ error: 'LeÃ§on introuvable' });
   const xpResult = await fulfillLesson(req.user.id, lesson);
-  if (!xpResult) return res.status(409).json({ error: 'Leçon déjà débloquée' });
+  if (!xpResult) return res.status(409).json({ error: 'LeÃ§on dÃ©jÃ  dÃ©bloquÃ©e' });
   res.json({ ok: true, xpResult });
 }));
 
 // POST /api/stripe/webhook
 app.post('/api/stripe/webhook', wrap(async (req, res) => {
   if (!stripe || !process.env.STRIPE_WEBHOOK_SECRET) {
-    return res.status(503).json({ error: 'Webhook Stripe non configuré (STRIPE_WEBHOOK_SECRET manquant)' });
+    return res.status(503).json({ error: 'Webhook Stripe non configurÃ© (STRIPE_WEBHOOK_SECRET manquant)' });
   }
   let event;
   try {
@@ -1119,6 +1138,101 @@ app.post('/api/stripe/webhook', wrap(async (req, res) => {
 }));
 
 // ---------------------------------------------------------------------------
+// Google Play Billing (TWA in-app purchases)
+// ---------------------------------------------------------------------------
+const PLAY_PRO_PRODUCTS = ['pro_monthly', 'pro_annual'];
+const PLAY_GEM_PRODUCTS = { gems_100: 100, gems_300: 300, gems_700: 700 };
+
+async function verifyPlaySubscription(productId, purchaseToken) {
+  if (!androidPublisher) throw new Error('Google Play Billing non configurÃ©');
+  const pkg = PLAY_PACKAGE;
+  const res = await androidPublisher.purchases.subscriptionsv2.get({
+    packageName: pkg, token: purchaseToken,
+  });
+  const sub = res.data;
+  // lineItems[0].productId doit correspondre
+  const item = (sub.lineItems || []).find((l) => l.productId === productId);
+  if (!item) throw new Error('Produit non trouvÃ© dans la souscription');
+  // paymentState: 1 = received, 2 = free trial
+  const active = sub.subscriptionState === 'SUBSCRIPTION_STATE_ACTIVE'
+    || sub.subscriptionState === 'SUBSCRIPTION_STATE_IN_GRACE_PERIOD';
+  return { valid: active, expiryTimeMillis: item.expiryTime ? new Date(item.expiryTime).getTime() : null };
+}
+
+async function verifyPlayPurchase(productId, purchaseToken) {
+  if (!androidPublisher) throw new Error('Google Play Billing non configurÃ©');
+  const pkg = PLAY_PACKAGE;
+  const res = await androidPublisher.purchases.products.get({
+    packageName: pkg, productId, token: purchaseToken,
+  });
+  // purchaseState: 0 = purchased
+  return { valid: res.data.purchaseState === 0, orderId: res.data.orderId };
+}
+
+// POST /api/play/billing/pro  â€” vÃ©rifie et active Pro via Google Play Billing
+app.post('/api/play/billing/pro', requireAuth, wrap(async (req, res) => {
+  const { productId, purchaseToken } = req.body || {};
+  if (!PLAY_PRO_PRODUCTS.includes(productId) || !purchaseToken) {
+    return badRequest(res, 'productId ou purchaseToken manquant');
+  }
+  if (!androidPublisher) {
+    // Mode dev sans credentials â†’ simuler
+    await fulfillPro(req.user.id);
+    return res.json({ ok: true, simulated: true, isPro: true });
+  }
+  try {
+    const { valid } = await verifyPlaySubscription(productId, purchaseToken);
+    if (!valid) return res.status(402).json({ error: 'Souscription invalide ou expirÃ©e' });
+    await fulfillPro(req.user.id);
+    // Acknowledge the purchase
+    await androidPublisher.purchases.subscriptionsv2.acknowledge({
+      packageName: PLAY_PACKAGE,
+      token: purchaseToken,
+    }).catch(() => {});
+    console.log(`[Play] Pro fulfilled: user ${req.user.id} product ${productId}`);
+    res.json({ ok: true, isPro: true });
+  } catch (err) {
+    console.error('[Play] Pro verify error:', err.message);
+    res.status(402).json({ error: 'Impossible de vÃ©rifier l\'achat Google Play' });
+  }
+}));
+
+// POST /api/play/billing/gems â€” vÃ©rifie et crÃ©dite des gemmes via Google Play Billing
+app.post('/api/play/billing/gems', requireAuth, wrap(async (req, res) => {
+  const { productId, purchaseToken } = req.body || {};
+  const gems = PLAY_GEM_PRODUCTS[productId];
+  if (!gems || !purchaseToken) return badRequest(res, 'productId ou purchaseToken manquant');
+  if (!androidPublisher) {
+    const result = await fulfillGems(req.user.id, { gems });
+    return res.json({ ok: true, simulated: true, ...result });
+  }
+  try {
+    const { valid, orderId } = await verifyPlayPurchase(productId, purchaseToken);
+    if (!valid) return res.status(402).json({ error: 'Achat invalide' });
+    const result = await fulfillGems(req.user.id, { gems });
+    // Acknowledge
+    await androidPublisher.purchases.products.acknowledge({
+      packageName: PLAY_PACKAGE,
+      productId, token: purchaseToken,
+    }).catch(() => {});
+    console.log(`[Play] Gems fulfilled: user ${req.user.id} +${gems} (order ${orderId})`);
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    console.error('[Play] Gems verify error:', err.message);
+    res.status(402).json({ error: 'Impossible de vÃ©rifier l\'achat Google Play' });
+  }
+}));
+
+// GET /api/play/billing/products â€” liste les produits disponibles (pour le frontend TWA)
+app.get('/api/play/billing/products', requireAuth, (req, res) => {
+  res.json({
+    subscriptions: PLAY_PRO_PRODUCTS,
+    products: Object.keys(PLAY_GEM_PRODUCTS),
+    gemAmounts: PLAY_GEM_PRODUCTS,
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Fallbacks & erreurs
 // ---------------------------------------------------------------------------
 app.use('/api', (req, res) => res.status(404).json({ error: 'Route inconnue' }));
@@ -1126,280 +1240,280 @@ app.get(/^\/(?!api).*/, (req, res) => res.sendFile(path.join(__dirname, 'public'
 
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
-  if (err.type === 'entity.too.large') return res.status(413).json({ error: 'Requête trop volumineuse.' });
+  if (err.type === 'entity.too.large') return res.status(413).json({ error: 'RequÃªte trop volumineuse.' });
   if (err.type === 'entity.parse.failed') return res.status(400).json({ error: 'JSON invalide.' });
   console.error('[ERR]', err.code || '', err.message || err);
   // Erreurs Stripe : renvoyer le message pour faciliter le diagnostic
   if (err.type && err.type.startsWith('Stripe')) return res.status(402).json({ error: err.message });
-  // Base de données inaccessible (Neon cold-start / réseau)
+  // Base de donnÃ©es inaccessible (Neon cold-start / rÃ©seau)
   if (err.code === 'P1001' || err.code === 'P1002' || err.code === 'P1008') {
-    return res.status(503).json({ error: 'Service temporairement indisponible. Réessayez dans quelques secondes.' });
+    return res.status(503).json({ error: 'Service temporairement indisponible. RÃ©essayez dans quelques secondes.' });
   }
   return res.status(err.status || 500).json({ error: 'Erreur serveur' });
 });
 
 // ---------------------------------------------------------------------------
-// Seed leçons (au démarrage si la table est vide)
+// Seed leÃ§ons (au dÃ©marrage si la table est vide)
 // ---------------------------------------------------------------------------
 const LESSON_SEED = [
   {
     slug: 'coupes-essentielles',
     title: 'Les coupes essentielles',
-    description: 'Julienne, brunoise, chiffonnade… maîtrise les 6 coupes de base avec précision.',
+    description: 'Julienne, brunoise, chiffonnadeâ€¦ maÃ®trise les 6 coupes de base avec prÃ©cision.',
     category: 'knife', skill: 'knife', difficulty: 1, icon: 'scissors', gemCost: 0, xpReward: 80, order: 1,
     content: JSON.stringify([
-      { type: 'text', text: 'Le couteau est le prolongement de ta main. Avant de maîtriser les sauces, les cuissons ou la pâtisserie, tu dois maîtriser les coupes. Chaque taille a une utilité précise : uniformité de cuisson, esthétique du plat, texture en bouche.' },
+      { type: 'text', text: 'Le couteau est le prolongement de ta main. Avant de maÃ®triser les sauces, les cuissons ou la pÃ¢tisserie, tu dois maÃ®triser les coupes. Chaque taille a une utilitÃ© prÃ©cise : uniformitÃ© de cuisson, esthÃ©tique du plat, texture en bouche.' },
       { type: 'heading', text: 'La prise en main correcte' },
-      { type: 'technique', title: 'La prise "en pince"', text: 'Pince la lame entre le pouce et l\'index, juste devant le manche. Les autres doigts tiennent le manche. C\'est la prise standard des cuisiniers professionnels : elle offre contrôle, précision et réduction de la fatigue.' },
-      { type: 'technique', title: 'La "griffe de chat"', text: 'Les doigts de la main qui tient l\'aliment sont repliés : les premières phalanges touchent la lame et guident la coupe, les bouts des doigts sont en retrait. La lame glisse contre les phalanges — jamais contre les ongles.' },
-      { type: 'warning', text: 'Ne jamais couper avec le poignet. Le mouvement vient de l\'épaule et du coude. Le couteau bascule d\'avant en arrière, la pointe reste en contact avec la planche.' },
+      { type: 'technique', title: 'La prise "en pince"', text: 'Pince la lame entre le pouce et l\'index, juste devant le manche. Les autres doigts tiennent le manche. C\'est la prise standard des cuisiniers professionnels : elle offre contrÃ´le, prÃ©cision et rÃ©duction de la fatigue.' },
+      { type: 'technique', title: 'La "griffe de chat"', text: 'Les doigts de la main qui tient l\'aliment sont repliÃ©s : les premiÃ¨res phalanges touchent la lame et guident la coupe, les bouts des doigts sont en retrait. La lame glisse contre les phalanges â€” jamais contre les ongles.' },
+      { type: 'warning', text: 'Ne jamais couper avec le poignet. Le mouvement vient de l\'Ã©paule et du coude. Le couteau bascule d\'avant en arriÃ¨re, la pointe reste en contact avec la planche.' },
       { type: 'heading', text: 'Les 6 coupes fondamentales' },
-      { type: 'technique', title: 'Émincer', text: 'Tranches fines et régulières, 1 à 3 mm. Technique de base pour oignons, champignons, courgettes. Objectif : régularité absolue pour une cuisson homogène.' },
-      { type: 'technique', title: 'Julienne', text: 'Bâtonnets de 3×3×50 mm. On commence par des tranches de 3 mm d\'épaisseur, puis on les empile et on taille en bâtonnets. Idéale pour légumes sautés, salades croquantes, garnitures.' },
-      { type: 'technique', title: 'Brunoise', text: 'Dés de 3×3×3 mm. On part d\'une julienne qu\'on coupe perpendiculairement tous les 3 mm. Parfaite pour les sauces, farces, soupes. La brunoise fine (1×1×1 mm) est réservée aux grandes tables.' },
-      { type: 'technique', title: 'Mirepoix', text: 'Dés grossiers de 1 à 2 cm. Carottes, céleri, oignon. Utilisée comme base aromatique pour bouillons, braises et ragoûts — la taille n\'a pas besoin d\'être parfaite, les légumes finissent souvent retirés.' },
-      { type: 'technique', title: 'Chiffonnade', text: 'Feuilles (basilic, salade, oseille, menthe) empilées, roulées en cigare, puis coupées en fines lanières. Ne jamais hacher les herbes fragiles — la pression du couteau les oxyde et les noircit.' },
-      { type: 'technique', title: 'Ciseler', text: 'Couper l\'oignon ou l\'échalote en petits dés fins sans les séparer. On incise d\'abord horizontalement (sans couper la racine), puis verticalement, puis on tranche. La racine maintient l\'oignon en place jusqu\'à la fin.' },
-      { type: 'heading', text: 'Ton matériel' },
-      { type: 'tip', text: 'Un couteau de chef 20 cm bien affûté fait 90 % du travail. Aiguise-le avant chaque usage avec un fusil ou une pierre. Un couteau émoussé demande plus de force, ce qui augmente le risque de glissement.' },
-      { type: 'tip', text: 'Planche en bois ou en plastique épaisse. Jamais de verre ou de marbre — ils abîment le fil du couteau instantanément. Glisse un torchon humide sous la planche pour l\'empêcher de bouger.' },
-      { type: 'warning', text: 'Ne jamais mettre ses couteaux au lave-vaisselle. La chaleur, l\'humidité et les chocs abîment le bois du manche et ramollissent le métal. Laver à la main, sécher immédiatement.' },
-      { type: 'recap', text: 'Émincer → tranches fines. Julienne → bâtonnets. Brunoise → petits dés. Mirepoix → gros dés aromatiques. Chiffonnade → herbes en lanières. Ciseler → oignons en dés sans les séparer.' },
-      { type: 'exercise', text: 'Prends une carotte. Taille-la en julienne (bâtonnets 3×3×50 mm), puis coupe ces bâtonnets en brunoise (3×3×3 mm). Compte le temps. Objectif : moins de 3 minutes avec des dés réguliers.' },
+      { type: 'technique', title: 'Ã‰mincer', text: 'Tranches fines et rÃ©guliÃ¨res, 1 Ã  3 mm. Technique de base pour oignons, champignons, courgettes. Objectif : rÃ©gularitÃ© absolue pour une cuisson homogÃ¨ne.' },
+      { type: 'technique', title: 'Julienne', text: 'BÃ¢tonnets de 3Ã—3Ã—50 mm. On commence par des tranches de 3 mm d\'Ã©paisseur, puis on les empile et on taille en bÃ¢tonnets. IdÃ©ale pour lÃ©gumes sautÃ©s, salades croquantes, garnitures.' },
+      { type: 'technique', title: 'Brunoise', text: 'DÃ©s de 3Ã—3Ã—3 mm. On part d\'une julienne qu\'on coupe perpendiculairement tous les 3 mm. Parfaite pour les sauces, farces, soupes. La brunoise fine (1Ã—1Ã—1 mm) est rÃ©servÃ©e aux grandes tables.' },
+      { type: 'technique', title: 'Mirepoix', text: 'DÃ©s grossiers de 1 Ã  2 cm. Carottes, cÃ©leri, oignon. UtilisÃ©e comme base aromatique pour bouillons, braises et ragoÃ»ts â€” la taille n\'a pas besoin d\'Ãªtre parfaite, les lÃ©gumes finissent souvent retirÃ©s.' },
+      { type: 'technique', title: 'Chiffonnade', text: 'Feuilles (basilic, salade, oseille, menthe) empilÃ©es, roulÃ©es en cigare, puis coupÃ©es en fines laniÃ¨res. Ne jamais hacher les herbes fragiles â€” la pression du couteau les oxyde et les noircit.' },
+      { type: 'technique', title: 'Ciseler', text: 'Couper l\'oignon ou l\'Ã©chalote en petits dÃ©s fins sans les sÃ©parer. On incise d\'abord horizontalement (sans couper la racine), puis verticalement, puis on tranche. La racine maintient l\'oignon en place jusqu\'Ã  la fin.' },
+      { type: 'heading', text: 'Ton matÃ©riel' },
+      { type: 'tip', text: 'Un couteau de chef 20 cm bien affÃ»tÃ© fait 90 % du travail. Aiguise-le avant chaque usage avec un fusil ou une pierre. Un couteau Ã©moussÃ© demande plus de force, ce qui augmente le risque de glissement.' },
+      { type: 'tip', text: 'Planche en bois ou en plastique Ã©paisse. Jamais de verre ou de marbre â€” ils abÃ®ment le fil du couteau instantanÃ©ment. Glisse un torchon humide sous la planche pour l\'empÃªcher de bouger.' },
+      { type: 'warning', text: 'Ne jamais mettre ses couteaux au lave-vaisselle. La chaleur, l\'humiditÃ© et les chocs abÃ®ment le bois du manche et ramollissent le mÃ©tal. Laver Ã  la main, sÃ©cher immÃ©diatement.' },
+      { type: 'recap', text: 'Ã‰mincer â†’ tranches fines. Julienne â†’ bÃ¢tonnets. Brunoise â†’ petits dÃ©s. Mirepoix â†’ gros dÃ©s aromatiques. Chiffonnade â†’ herbes en laniÃ¨res. Ciseler â†’ oignons en dÃ©s sans les sÃ©parer.' },
+      { type: 'exercise', text: 'Prends une carotte. Taille-la en julienne (bÃ¢tonnets 3Ã—3Ã—50 mm), puis coupe ces bÃ¢tonnets en brunoise (3Ã—3Ã—3 mm). Compte le temps. Objectif : moins de 3 minutes avec des dÃ©s rÃ©guliers.' },
     ]),
   },
   {
     slug: 'mise-en-place',
     title: 'La mise en place',
-    description: 'L\'art de l\'organisation. Prépare comme un pro, cuisine sans stress ni improvisation.',
+    description: 'L\'art de l\'organisation. PrÃ©pare comme un pro, cuisine sans stress ni improvisation.',
     category: 'prep', skill: 'prep', difficulty: 1, icon: 'layout-grid', gemCost: 0, xpReward: 80, order: 2,
     content: JSON.stringify([
-      { type: 'text', text: '"Mise en place" — littéralement "mettre en place" — est le principe fondateur de toute cuisine professionnelle. C\'est l\'art de préparer, organiser et disposer chaque ingrédient, outil et équipement avant d\'allumer le feu. Sans elle, on improvise. Avec elle, on cuisine.' },
+      { type: 'text', text: '"Mise en place" â€” littÃ©ralement "mettre en place" â€” est le principe fondateur de toute cuisine professionnelle. C\'est l\'art de prÃ©parer, organiser et disposer chaque ingrÃ©dient, outil et Ã©quipement avant d\'allumer le feu. Sans elle, on improvise. Avec elle, on cuisine.' },
       { type: 'heading', text: 'Avant de commencer : lire et planifier' },
-      { type: 'technique', title: 'Lire la recette en entier', text: 'Pas juste les ingrédients — la recette complète, deux fois. Identifie les temps de repos (pâte à laisser lever, viande à mariner, crème à refroidir), les étapes parallèles et les équipements spéciaux (thermomètre, film alimentaire, poche à douille).' },
-      { type: 'technique', title: 'Dresser la liste du matériel', text: 'Couteaux, planches, casseroles, saladiers, tamis, spatules… Tout sortir avant de commencer. Rien de plus frustrant que de chercher une écumoire alors que la sauce est en train de brûler.' },
-      { type: 'tip', text: 'Identifie les étapes critiques qui ne pardonnent pas l\'improvisation : monter une mayonnaise, tempérer du chocolat, cuire un caramel. Ces étapes demandent 100 % de ton attention. Tout le reste doit être prêt avant.' },
-      { type: 'heading', text: 'Préparer les ingrédients' },
-      { type: 'technique', title: 'Peser et mesurer', text: 'Tous les ingrédients pesés et disposés dans des bols ou ramequins avant de commencer. En cuisine professionnelle, on appelle ça les "bols de mis en place". Ça évite les erreurs de dosage et permet de cuisiner sans interruption.' },
-      { type: 'technique', title: 'Préparer dans l\'ordre d\'utilisation', text: 'Commence par les ingrédients qui prennent le plus de temps à préparer (légumes à tailler, viande à mariner) et termine par ceux qui s\'utilisent en dernier. Regrouper les ingrédients par étape de la recette.' },
-      { type: 'technique', title: 'Étiqueter si nécessaire', text: 'Pour les préparations à l\'avance (bouillon, fond, crème), couvre avec du film et étiquette : contenu + date. En cuisine pro, on date systématiquement. Chez toi, ça évite de "goûter pour deviner".' },
-      { type: 'warning', text: 'Ne jamais laisser des protéines crues (viande, poisson) à température ambiante plus de 20 minutes. Prépare-les en dernier et remets-les au frais si la recette le permet.' },
+      { type: 'technique', title: 'Lire la recette en entier', text: 'Pas juste les ingrÃ©dients â€” la recette complÃ¨te, deux fois. Identifie les temps de repos (pÃ¢te Ã  laisser lever, viande Ã  mariner, crÃ¨me Ã  refroidir), les Ã©tapes parallÃ¨les et les Ã©quipements spÃ©ciaux (thermomÃ¨tre, film alimentaire, poche Ã  douille).' },
+      { type: 'technique', title: 'Dresser la liste du matÃ©riel', text: 'Couteaux, planches, casseroles, saladiers, tamis, spatulesâ€¦ Tout sortir avant de commencer. Rien de plus frustrant que de chercher une Ã©cumoire alors que la sauce est en train de brÃ»ler.' },
+      { type: 'tip', text: 'Identifie les Ã©tapes critiques qui ne pardonnent pas l\'improvisation : monter une mayonnaise, tempÃ©rer du chocolat, cuire un caramel. Ces Ã©tapes demandent 100 % de ton attention. Tout le reste doit Ãªtre prÃªt avant.' },
+      { type: 'heading', text: 'PrÃ©parer les ingrÃ©dients' },
+      { type: 'technique', title: 'Peser et mesurer', text: 'Tous les ingrÃ©dients pesÃ©s et disposÃ©s dans des bols ou ramequins avant de commencer. En cuisine professionnelle, on appelle Ã§a les "bols de mis en place". Ã‡a Ã©vite les erreurs de dosage et permet de cuisiner sans interruption.' },
+      { type: 'technique', title: 'PrÃ©parer dans l\'ordre d\'utilisation', text: 'Commence par les ingrÃ©dients qui prennent le plus de temps Ã  prÃ©parer (lÃ©gumes Ã  tailler, viande Ã  mariner) et termine par ceux qui s\'utilisent en dernier. Regrouper les ingrÃ©dients par Ã©tape de la recette.' },
+      { type: 'technique', title: 'Ã‰tiqueter si nÃ©cessaire', text: 'Pour les prÃ©parations Ã  l\'avance (bouillon, fond, crÃ¨me), couvre avec du film et Ã©tiquette : contenu + date. En cuisine pro, on date systÃ©matiquement. Chez toi, Ã§a Ã©vite de "goÃ»ter pour deviner".' },
+      { type: 'warning', text: 'Ne jamais laisser des protÃ©ines crues (viande, poisson) Ã  tempÃ©rature ambiante plus de 20 minutes. PrÃ©pare-les en dernier et remets-les au frais si la recette le permet.' },
       { type: 'heading', text: 'Organiser l\'espace de travail' },
-      { type: 'technique', title: 'Zone propre / zone sale', text: 'Délimite mentalement ta planche (zone de travail propre) et un côté "déchets" où vont les épluchures et parures. Ne jamais mettre de déchets sur la zone de travail propre.' },
-      { type: 'technique', title: 'Nettoyer au fur et à mesure', text: 'Après chaque préparation, essuie la planche, range les bols vides, jette les déchets. Un plan de travail encombré ralentit et génère des erreurs. C\'est ce qu\'on appelle "clean as you go".' },
-      { type: 'tip', text: 'Garde un torchon propre sur l\'épaule (comme les chefs) pour essuyer tes mains, nettoyer les rebords des plats, saisir les poignées chaudes. Change-le souvent : un torchon sale est une source de contamination.' },
-      { type: 'tip', text: 'Préchauffer le four, faire bouillir l\'eau, sortir le beurre du frigo à l\'avance font partie de la mise en place. Le thermomètre du four ment souvent — laisse 15 min de plus que la recette recommande.' },
-      { type: 'recap', text: 'Lire en entier → peser tous les ingrédients → préparer dans l\'ordre → organiser l\'espace → nettoyer au fur et à mesure. La mise en place transforme une session stressante en cuisine fluide et maîtrisée.' },
-      { type: 'exercise', text: 'Choisis une recette de 4-5 étapes. Avant d\'allumer quoi que ce soit, prépare et dispose tous les ingrédients en bols. Lis chaque étape et imagine-la mentalement. Puis cuisine. Compare le stress et le résultat avec ta façon de cuisiner habituelle.' },
+      { type: 'technique', title: 'Zone propre / zone sale', text: 'DÃ©limite mentalement ta planche (zone de travail propre) et un cÃ´tÃ© "dÃ©chets" oÃ¹ vont les Ã©pluchures et parures. Ne jamais mettre de dÃ©chets sur la zone de travail propre.' },
+      { type: 'technique', title: 'Nettoyer au fur et Ã  mesure', text: 'AprÃ¨s chaque prÃ©paration, essuie la planche, range les bols vides, jette les dÃ©chets. Un plan de travail encombrÃ© ralentit et gÃ©nÃ¨re des erreurs. C\'est ce qu\'on appelle "clean as you go".' },
+      { type: 'tip', text: 'Garde un torchon propre sur l\'Ã©paule (comme les chefs) pour essuyer tes mains, nettoyer les rebords des plats, saisir les poignÃ©es chaudes. Change-le souvent : un torchon sale est une source de contamination.' },
+      { type: 'tip', text: 'PrÃ©chauffer le four, faire bouillir l\'eau, sortir le beurre du frigo Ã  l\'avance font partie de la mise en place. Le thermomÃ¨tre du four ment souvent â€” laisse 15 min de plus que la recette recommande.' },
+      { type: 'recap', text: 'Lire en entier â†’ peser tous les ingrÃ©dients â†’ prÃ©parer dans l\'ordre â†’ organiser l\'espace â†’ nettoyer au fur et Ã  mesure. La mise en place transforme une session stressante en cuisine fluide et maÃ®trisÃ©e.' },
+      { type: 'exercise', text: 'Choisis une recette de 4-5 Ã©tapes. Avant d\'allumer quoi que ce soit, prÃ©pare et dispose tous les ingrÃ©dients en bols. Lis chaque Ã©tape et imagine-la mentalement. Puis cuisine. Compare le stress et le rÃ©sultat avec ta faÃ§on de cuisiner habituelle.' },
     ]),
   },
   {
     slug: 'aromates-de-base',
     title: 'Les aromates de base',
-    description: 'Les 5 piliers du goût, herbes, épices, zestes : construire la profondeur d\'un plat.',
+    description: 'Les 5 piliers du goÃ»t, herbes, Ã©pices, zestes : construire la profondeur d\'un plat.',
     category: 'seasoning', skill: 'seasoning', difficulty: 1, icon: 'leaf', gemCost: 0, xpReward: 80, order: 3,
     content: JSON.stringify([
-      { type: 'text', text: 'L\'assaisonnement est l\'art de construire l\'équilibre. Un plat fade n\'est pas un plat sans sel — c\'est un plat sans complexité. Les cinq piliers du goût sont : le salé, l\'acide, le sucré, l\'amer et l\'umami. Comprendre comment les doser et les combiner transforme radicalement ta cuisine.' },
-      { type: 'heading', text: 'Les 5 piliers du goût' },
-      { type: 'technique', title: 'Le salé — amplificateur universel', text: 'Le sel ne sale pas seulement : il amplifie tous les autres arômes. Sel fin pour assaisonner en cours de cuisson, fleur de sel pour finir. Saler en plusieurs fois, dès le début (légumes, eau de cuisson, sauces), pas uniquement à la fin.' },
-      { type: 'technique', title: 'L\'acidité — le révélateur', text: 'Un filet de citron, une cuillère de vinaigre ou un verre de vin blanc après la cuisson "ouvre" les saveurs d\'un plat qui semblait fade. L\'acide équilibre aussi les plats trop gras ou trop sucrés. Sources : citron, vinaigre (balsamique, de vin, de cidre), tomate, yaourt.' },
-      { type: 'technique', title: 'Le sucré — équilibreur', text: 'Une pincée de sucre dans une sauce tomate acide ou une réduction de vinaigre balsamique change tout. Le sucré atténue l\'amertume et l\'acidité. Ne jamais en mettre trop — le but est de ne pas sentir le sucre, juste de gommer un déséquilibre.' },
-      { type: 'technique', title: 'L\'umami — la profondeur', text: 'Saveur de "5e goût" : bouillon réduit, parmesan, champignons séchés, sauce soja, tomate concentrée, anchois. L\'umami donne la sensation de plat "qui a du fond". Une cuillère de parmesan râpé dans une soupe de légumes la transforme complètement.' },
-      { type: 'technique', title: 'L\'amer — la sophistication', text: 'Café, chocolat noir, radicchio, endive, zeste. L\'amer en petite dose apporte complexité et équilibre le sucré. En excès, il domine tout. Le beurre, le gras ou le sucré adoucissent un amer trop prononcé.' },
+      { type: 'text', text: 'L\'assaisonnement est l\'art de construire l\'Ã©quilibre. Un plat fade n\'est pas un plat sans sel â€” c\'est un plat sans complexitÃ©. Les cinq piliers du goÃ»t sont : le salÃ©, l\'acide, le sucrÃ©, l\'amer et l\'umami. Comprendre comment les doser et les combiner transforme radicalement ta cuisine.' },
+      { type: 'heading', text: 'Les 5 piliers du goÃ»t' },
+      { type: 'technique', title: 'Le salÃ© â€” amplificateur universel', text: 'Le sel ne sale pas seulement : il amplifie tous les autres arÃ´mes. Sel fin pour assaisonner en cours de cuisson, fleur de sel pour finir. Saler en plusieurs fois, dÃ¨s le dÃ©but (lÃ©gumes, eau de cuisson, sauces), pas uniquement Ã  la fin.' },
+      { type: 'technique', title: 'L\'aciditÃ© â€” le rÃ©vÃ©lateur', text: 'Un filet de citron, une cuillÃ¨re de vinaigre ou un verre de vin blanc aprÃ¨s la cuisson "ouvre" les saveurs d\'un plat qui semblait fade. L\'acide Ã©quilibre aussi les plats trop gras ou trop sucrÃ©s. Sources : citron, vinaigre (balsamique, de vin, de cidre), tomate, yaourt.' },
+      { type: 'technique', title: 'Le sucrÃ© â€” Ã©quilibreur', text: 'Une pincÃ©e de sucre dans une sauce tomate acide ou une rÃ©duction de vinaigre balsamique change tout. Le sucrÃ© attÃ©nue l\'amertume et l\'aciditÃ©. Ne jamais en mettre trop â€” le but est de ne pas sentir le sucre, juste de gommer un dÃ©sÃ©quilibre.' },
+      { type: 'technique', title: 'L\'umami â€” la profondeur', text: 'Saveur de "5e goÃ»t" : bouillon rÃ©duit, parmesan, champignons sÃ©chÃ©s, sauce soja, tomate concentrÃ©e, anchois. L\'umami donne la sensation de plat "qui a du fond". Une cuillÃ¨re de parmesan rÃ¢pÃ© dans une soupe de lÃ©gumes la transforme complÃ¨tement.' },
+      { type: 'technique', title: 'L\'amer â€” la sophistication', text: 'CafÃ©, chocolat noir, radicchio, endive, zeste. L\'amer en petite dose apporte complexitÃ© et Ã©quilibre le sucrÃ©. En excÃ¨s, il domine tout. Le beurre, le gras ou le sucrÃ© adoucissent un amer trop prononcÃ©.' },
       { type: 'heading', text: 'Herbes aromatiques' },
-      { type: 'technique', title: 'Herbes fragiles — en fin de cuisson', text: 'Basilic, coriandre, persil plat, ciboulette, estragon, menthe. La chaleur détruit leurs arômes volatils en quelques secondes. Les ajouter hors du feu, juste avant de servir. Le basilic noircit aussi par pression — ciseler, jamais hacher.' },
-      { type: 'technique', title: 'Herbes robustes — en début de cuisson', text: 'Thym, romarin, sauge, laurier, origan. Leurs huiles essentielles résistent à la chaleur et se libèrent avec le temps. Les ajouter en début de cuisson pour une infusion progressive dans la matière grasse ou le liquide.' },
-      { type: 'tip', text: 'Le bouquet garni classique (thym + laurier + queue de persil) est la base de 80 % des plats mijotés français. On le met au début, on le retire avant de servir.' },
-      { type: 'heading', text: 'Épices et zestes' },
-      { type: 'technique', title: 'Torréfier les épices', text: 'Passer les épices entières 1-2 minutes à sec dans une poêle chaude avant de les moudre. La chaleur libère les huiles essentielles et multiplie leur intensité. Indispensable pour cumin, coriandre, cardamome, poivre.' },
-      { type: 'technique', title: 'Les zestes d\'agrumes', text: 'Ne prélever que la partie colorée, jamais le blanc (albédo) qui est amer. Zester au-dessus du plat pour capturer les huiles essentielles qui s\'en échappent. Une pincée de zeste de citron dans un risotto, une vinaigrette ou une crème change la dimension du plat.' },
-      { type: 'warning', text: 'Ne jamais assaisonner une viande crue et la laisser reposer longtemps avec du sel — il commence à "cuire" les protéines et peut assécher la chair. Saler juste avant la cuisson, ou au moins 40 minutes avant (saumurage à sec).' },
-      { type: 'tip', text: 'La règle d\'or : goûte toujours avant de servir. Ton nez peut te dire si un plat manque d\'acidité ou d\'umami, mais seule ta bouche peut confirmer l\'équilibre final. Goûte et rectifie.' },
-      { type: 'recap', text: 'Sel → amplifie. Acide → révèle et équilibre. Sucré → adoucit. Umami → donne de la profondeur. Amer → complexifie. Herbes fragiles en fin, robustes en début. Toujours goûter avant de servir.' },
-      { type: 'exercise', text: 'Prépare un bouillon de légumes simple (eau + carotte + oignon + céleri). Goûte à blanc. Ajoute du sel progressivement, goûte. Puis un filet de citron, goûte. Puis une pincée de parmesan râpé, goûte. Observe comment chaque ajout transforme la perception du plat.' },
+      { type: 'technique', title: 'Herbes fragiles â€” en fin de cuisson', text: 'Basilic, coriandre, persil plat, ciboulette, estragon, menthe. La chaleur dÃ©truit leurs arÃ´mes volatils en quelques secondes. Les ajouter hors du feu, juste avant de servir. Le basilic noircit aussi par pression â€” ciseler, jamais hacher.' },
+      { type: 'technique', title: 'Herbes robustes â€” en dÃ©but de cuisson', text: 'Thym, romarin, sauge, laurier, origan. Leurs huiles essentielles rÃ©sistent Ã  la chaleur et se libÃ¨rent avec le temps. Les ajouter en dÃ©but de cuisson pour une infusion progressive dans la matiÃ¨re grasse ou le liquide.' },
+      { type: 'tip', text: 'Le bouquet garni classique (thym + laurier + queue de persil) est la base de 80 % des plats mijotÃ©s franÃ§ais. On le met au dÃ©but, on le retire avant de servir.' },
+      { type: 'heading', text: 'Ã‰pices et zestes' },
+      { type: 'technique', title: 'TorrÃ©fier les Ã©pices', text: 'Passer les Ã©pices entiÃ¨res 1-2 minutes Ã  sec dans une poÃªle chaude avant de les moudre. La chaleur libÃ¨re les huiles essentielles et multiplie leur intensitÃ©. Indispensable pour cumin, coriandre, cardamome, poivre.' },
+      { type: 'technique', title: 'Les zestes d\'agrumes', text: 'Ne prÃ©lever que la partie colorÃ©e, jamais le blanc (albÃ©do) qui est amer. Zester au-dessus du plat pour capturer les huiles essentielles qui s\'en Ã©chappent. Une pincÃ©e de zeste de citron dans un risotto, une vinaigrette ou une crÃ¨me change la dimension du plat.' },
+      { type: 'warning', text: 'Ne jamais assaisonner une viande crue et la laisser reposer longtemps avec du sel â€” il commence Ã  "cuire" les protÃ©ines et peut assÃ©cher la chair. Saler juste avant la cuisson, ou au moins 40 minutes avant (saumurage Ã  sec).' },
+      { type: 'tip', text: 'La rÃ¨gle d\'or : goÃ»te toujours avant de servir. Ton nez peut te dire si un plat manque d\'aciditÃ© ou d\'umami, mais seule ta bouche peut confirmer l\'Ã©quilibre final. GoÃ»te et rectifie.' },
+      { type: 'recap', text: 'Sel â†’ amplifie. Acide â†’ rÃ©vÃ¨le et Ã©quilibre. SucrÃ© â†’ adoucit. Umami â†’ donne de la profondeur. Amer â†’ complexifie. Herbes fragiles en fin, robustes en dÃ©but. Toujours goÃ»ter avant de servir.' },
+      { type: 'exercise', text: 'PrÃ©pare un bouillon de lÃ©gumes simple (eau + carotte + oignon + cÃ©leri). GoÃ»te Ã  blanc. Ajoute du sel progressivement, goÃ»te. Puis un filet de citron, goÃ»te. Puis une pincÃ©e de parmesan rÃ¢pÃ©, goÃ»te. Observe comment chaque ajout transforme la perception du plat.' },
     ]),
   },
   {
     slug: 'bases-patisserie',
-    title: 'Les bases de la pâtisserie',
-    description: 'Crèmes incontournables, pâtes fondamentales, règles d\'or du four.',
+    title: 'Les bases de la pÃ¢tisserie',
+    description: 'CrÃ¨mes incontournables, pÃ¢tes fondamentales, rÃ¨gles d\'or du four.',
     category: 'baking', skill: 'baking', difficulty: 2, icon: 'cake', gemCost: 30, xpReward: 120, order: 4,
     content: JSON.stringify([
-      { type: 'text', text: 'La pâtisserie est une science exacte. Là où la cuisine tolère l\'improvisation, la pâtisserie exige précision, température et timing. Maîtriser les crèmes de base et les pâtes fondamentales, c\'est avoir les clés de 90 % des desserts classiques.' },
-      { type: 'heading', text: 'Règles d\'or avant de commencer' },
-      { type: 'technique', title: 'Peser, ne pas mesurer en volume', text: 'En pâtisserie, "une tasse de farine" peut varier de 120 à 160 g selon la façon dont on tasse. Toujours peser. Une balance de précision au gramme est l\'investissement le plus rentable en pâtisserie.' },
-      { type: 'technique', title: 'Température des ingrédients', text: 'Beurre "pommade" = 18-20°C, malléable mais pas fondu. Œufs à température ambiante = meilleure émulsion. Crème froide = monte mieux en chantilly. La température des ingrédients n\'est pas un détail, c\'est une variable critique.' },
-      { type: 'tip', text: 'Préchauffer le four 20 min minimum. La plupart des fours domestiques mettent 15 min à atteindre la température affichée — et ils mentent souvent de 10 à 20°C. Un thermomètre de four (5€) est indispensable.' },
-      { type: 'heading', text: 'Les crèmes fondamentales' },
-      { type: 'technique', title: 'Crème pâtissière', text: 'Base des éclairs, millefeuilles, tartes aux fruits. Recette : 500 ml lait + 4 jaunes + 100 g sucre (blanchir) + 50 g fécule de maïs. Porter le lait à frémissement, verser en filet sur le mélange jaunes/sucre/fécule sans cesser de fouetter, puis remettre sur feu moyen en remuant jusqu\'à épaississement (85°C). Film au contact, refroidir.' },
-      { type: 'technique', title: 'Crème chantilly', text: 'Crème entière (min 30% MG) très froide, bol et fouet au congélateur 10 min. Fouetter à vitesse moyenne jusqu\'à traces molles, puis rapide jusqu\'à consistance ferme. Ajouter le sucre glace à mi-parcours. S\'arrêter à la bonne texture — 30 secondes de trop et c\'est du beurre.' },
-      { type: 'technique', title: 'Crème anglaise', text: 'Base des glaces et des îles flottantes. 500 ml lait + 5 jaunes + 100 g sucre. Blanchir les jaunes avec le sucre, verser le lait chaud, cuire à la nappe (82-84°C) : la crème nappe la cuillère et le trait du doigt tient. Ne jamais dépasser 85°C — les jaunes coagulent et font des grumeaux.' },
-      { type: 'warning', text: 'La crème pâtissière trop cuite ou mal remuée forme des grumeaux. Si ça arrive, passe au tamis fin ou au mixeur plongeant. La crème anglaise au-delà de 85°C tourne en scrambled eggs — c\'est irréparable.' },
-      { type: 'heading', text: 'Les pâtes de base' },
-      { type: 'technique', title: 'Pâte brisée', text: 'Pour tartes salées et sucrées non-garnies. 250 g farine + 125 g beurre froid en dés + 1 pincée sel + 60 ml eau glacée. Sabler (frotter beurre + farine entre les paumes jusqu\'à texture sable), puis lier avec l\'eau minimum. Ne pas pétrir : former une boule sans travailler. 1h au frais minimum.' },
-      { type: 'technique', title: 'Pâte sucrée', text: 'Pour tartes sucrées et fonds de gâteaux. 250 g farine + 150 g beurre pommade + 100 g sucre glace + 1 jaune + 1 pincée sel. Crémer beurre + sucre, ajouter le jaune, puis la farine en une fois. Fraiser (pousser la pâte contre le plan de travail) une fois, filmer, réfrigérer 1h. Plus fragile que la brisée, ne pas trop travailler.' },
-      { type: 'technique', title: 'Génoise', text: 'Base des biscuits de Savoie, bûches, entremets. 4 œufs + 120 g sucre (au bain-marie jusqu\'à 50°C, monter au ruban) + 120 g farine tamisée (incorporer en pluie en 3 fois en soulevant). Four 180°C, 20-25 min. Ne pas ouvrir le four avant 18 min.' },
-      { type: 'tip', text: 'Pour vérifier la cuisson d\'un biscuit ou d\'un gâteau : piquer avec un couteau ou une aiguille. Il doit ressortir sec. Si la pointe ressort humide, prolonger par tranches de 3 minutes.' },
-      { type: 'warning', text: 'Ne jamais ouvrir le four en cours de cuisson d\'une génoise ou d\'un soufflé — le choc thermique fait retomber la préparation. Attendre 80 % du temps de cuisson indiqué avant de vérifier.' },
-      { type: 'recap', text: 'Crème pâtissière : liaison chaude à 85°C, film au contact. Chantilly : crème froide, arrêter au bon moment. Pâte brisée : sabler, lier minimum, ne pas pétrir. Pâte sucrée : crémer, fraiser, refroidir. Génoise : œufs montés, farine en pluie.' },
-      { type: 'exercise', text: 'Réalise une crème pâtissière. Couvre-la d\'un film au contact, laisse refroidir 1h au réfrigérateur. Elle doit être lisse, sans grumeaux, et suffisamment ferme pour tenir sur une cuillère retournée. C\'est la base de ta première tarte aux fraises.' },
+      { type: 'text', text: 'La pÃ¢tisserie est une science exacte. LÃ  oÃ¹ la cuisine tolÃ¨re l\'improvisation, la pÃ¢tisserie exige prÃ©cision, tempÃ©rature et timing. MaÃ®triser les crÃ¨mes de base et les pÃ¢tes fondamentales, c\'est avoir les clÃ©s de 90 % des desserts classiques.' },
+      { type: 'heading', text: 'RÃ¨gles d\'or avant de commencer' },
+      { type: 'technique', title: 'Peser, ne pas mesurer en volume', text: 'En pÃ¢tisserie, "une tasse de farine" peut varier de 120 Ã  160 g selon la faÃ§on dont on tasse. Toujours peser. Une balance de prÃ©cision au gramme est l\'investissement le plus rentable en pÃ¢tisserie.' },
+      { type: 'technique', title: 'TempÃ©rature des ingrÃ©dients', text: 'Beurre "pommade" = 18-20Â°C, mallÃ©able mais pas fondu. Å’ufs Ã  tempÃ©rature ambiante = meilleure Ã©mulsion. CrÃ¨me froide = monte mieux en chantilly. La tempÃ©rature des ingrÃ©dients n\'est pas un dÃ©tail, c\'est une variable critique.' },
+      { type: 'tip', text: 'PrÃ©chauffer le four 20 min minimum. La plupart des fours domestiques mettent 15 min Ã  atteindre la tempÃ©rature affichÃ©e â€” et ils mentent souvent de 10 Ã  20Â°C. Un thermomÃ¨tre de four (5â‚¬) est indispensable.' },
+      { type: 'heading', text: 'Les crÃ¨mes fondamentales' },
+      { type: 'technique', title: 'CrÃ¨me pÃ¢tissiÃ¨re', text: 'Base des Ã©clairs, millefeuilles, tartes aux fruits. Recette : 500 ml lait + 4 jaunes + 100 g sucre (blanchir) + 50 g fÃ©cule de maÃ¯s. Porter le lait Ã  frÃ©missement, verser en filet sur le mÃ©lange jaunes/sucre/fÃ©cule sans cesser de fouetter, puis remettre sur feu moyen en remuant jusqu\'Ã  Ã©paississement (85Â°C). Film au contact, refroidir.' },
+      { type: 'technique', title: 'CrÃ¨me chantilly', text: 'CrÃ¨me entiÃ¨re (min 30% MG) trÃ¨s froide, bol et fouet au congÃ©lateur 10 min. Fouetter Ã  vitesse moyenne jusqu\'Ã  traces molles, puis rapide jusqu\'Ã  consistance ferme. Ajouter le sucre glace Ã  mi-parcours. S\'arrÃªter Ã  la bonne texture â€” 30 secondes de trop et c\'est du beurre.' },
+      { type: 'technique', title: 'CrÃ¨me anglaise', text: 'Base des glaces et des Ã®les flottantes. 500 ml lait + 5 jaunes + 100 g sucre. Blanchir les jaunes avec le sucre, verser le lait chaud, cuire Ã  la nappe (82-84Â°C) : la crÃ¨me nappe la cuillÃ¨re et le trait du doigt tient. Ne jamais dÃ©passer 85Â°C â€” les jaunes coagulent et font des grumeaux.' },
+      { type: 'warning', text: 'La crÃ¨me pÃ¢tissiÃ¨re trop cuite ou mal remuÃ©e forme des grumeaux. Si Ã§a arrive, passe au tamis fin ou au mixeur plongeant. La crÃ¨me anglaise au-delÃ  de 85Â°C tourne en scrambled eggs â€” c\'est irrÃ©parable.' },
+      { type: 'heading', text: 'Les pÃ¢tes de base' },
+      { type: 'technique', title: 'PÃ¢te brisÃ©e', text: 'Pour tartes salÃ©es et sucrÃ©es non-garnies. 250 g farine + 125 g beurre froid en dÃ©s + 1 pincÃ©e sel + 60 ml eau glacÃ©e. Sabler (frotter beurre + farine entre les paumes jusqu\'Ã  texture sable), puis lier avec l\'eau minimum. Ne pas pÃ©trir : former une boule sans travailler. 1h au frais minimum.' },
+      { type: 'technique', title: 'PÃ¢te sucrÃ©e', text: 'Pour tartes sucrÃ©es et fonds de gÃ¢teaux. 250 g farine + 150 g beurre pommade + 100 g sucre glace + 1 jaune + 1 pincÃ©e sel. CrÃ©mer beurre + sucre, ajouter le jaune, puis la farine en une fois. Fraiser (pousser la pÃ¢te contre le plan de travail) une fois, filmer, rÃ©frigÃ©rer 1h. Plus fragile que la brisÃ©e, ne pas trop travailler.' },
+      { type: 'technique', title: 'GÃ©noise', text: 'Base des biscuits de Savoie, bÃ»ches, entremets. 4 Å“ufs + 120 g sucre (au bain-marie jusqu\'Ã  50Â°C, monter au ruban) + 120 g farine tamisÃ©e (incorporer en pluie en 3 fois en soulevant). Four 180Â°C, 20-25 min. Ne pas ouvrir le four avant 18 min.' },
+      { type: 'tip', text: 'Pour vÃ©rifier la cuisson d\'un biscuit ou d\'un gÃ¢teau : piquer avec un couteau ou une aiguille. Il doit ressortir sec. Si la pointe ressort humide, prolonger par tranches de 3 minutes.' },
+      { type: 'warning', text: 'Ne jamais ouvrir le four en cours de cuisson d\'une gÃ©noise ou d\'un soufflÃ© â€” le choc thermique fait retomber la prÃ©paration. Attendre 80 % du temps de cuisson indiquÃ© avant de vÃ©rifier.' },
+      { type: 'recap', text: 'CrÃ¨me pÃ¢tissiÃ¨re : liaison chaude Ã  85Â°C, film au contact. Chantilly : crÃ¨me froide, arrÃªter au bon moment. PÃ¢te brisÃ©e : sabler, lier minimum, ne pas pÃ©trir. PÃ¢te sucrÃ©e : crÃ©mer, fraiser, refroidir. GÃ©noise : Å“ufs montÃ©s, farine en pluie.' },
+      { type: 'exercise', text: 'RÃ©alise une crÃ¨me pÃ¢tissiÃ¨re. Couvre-la d\'un film au contact, laisse refroidir 1h au rÃ©frigÃ©rateur. Elle doit Ãªtre lisse, sans grumeaux, et suffisamment ferme pour tenir sur une cuillÃ¨re retournÃ©e. C\'est la base de ta premiÃ¨re tarte aux fraises.' },
     ]),
   },
   {
     slug: 'maitrise-saisie',
-    title: 'Maîtriser la saisie',
-    description: 'La réaction de Maillard, la croûte parfaite, le repos : tout sur la cuisson des protéines.',
+    title: 'MaÃ®triser la saisie',
+    description: 'La rÃ©action de Maillard, la croÃ»te parfaite, le repos : tout sur la cuisson des protÃ©ines.',
     category: 'fire', skill: 'fire', difficulty: 2, icon: 'flame', gemCost: 30, xpReward: 120, order: 5,
     content: JSON.stringify([
-      { type: 'text', text: 'La saisie est l\'une des techniques les plus mal exécutées en cuisine amateur. Résultat : une viande grise, bouillie dans son jus, sans croûte. Pourtant, les règles sont simples. Les comprendre transforme immédiatement tes cuissons.' },
-      { type: 'heading', text: 'La réaction de Maillard' },
-      { type: 'technique', title: 'Ce qui se passe chimiquement', text: 'À partir de 150°C, les acides aminés et les sucres réducteurs en surface réagissent pour former des centaines de molécules aromatiques : c\'est la réaction de Maillard. Elle crée la croûte dorée, les arômes de grillé, la saveur umami de la viande bien saisie. Ce n\'est pas une "caramélisation" — c\'est une réaction de brunissement non enzymatique.' },
-      { type: 'warning', text: 'Si la poêle n\'est pas assez chaude, la viande libère de l\'eau avant d\'atteindre 150°C. L\'eau forme de la vapeur qui empêche le contact avec la surface. Résultat : la viande cuit à la vapeur, devient grise, pas de croûte. C\'est l\'erreur n°1.' },
-      { type: 'heading', text: 'Préparer la saisie' },
-      { type: 'technique', title: 'Choisir la bonne poêle', text: 'Fonte ou acier : conduisent et retiennent mieux la chaleur que l\'inox. L\'inox convient mais demande plus de vigilance. Antiadhésif : uniquement pour les préparations délicates (poisson, œufs). Pour les viandes, éviter — il ne monte pas assez chaud.' },
-      { type: 'technique', title: 'Préchauffer correctement', text: 'Feu vif, 3 à 4 minutes à vide. Test : quelques gouttes d\'eau doivent s\'évaporer instantanément en crépitant (effet Leidenfrost). Ajouter la matière grasse 30 secondes avant la viande : huile à haute température de fumée (arachide, pépins de raisin) ou beurre clarifié.' },
-      { type: 'technique', title: 'Sécher la surface', text: 'Essuyer la viande avec du papier absorbant avant de saisir. L\'humidité en surface = vapeur = pas de Maillard. Pour un résultat optimal, laisser la viande à découvert au réfrigérateur 1h avant cuisson (sèche à l\'air).' },
-      { type: 'tip', text: 'Sortir la viande du réfrigérateur 20-30 min avant cuisson. Une viande froide refroidit la poêle dès le contact et peut empêcher la saisie de démarrer correctement, surtout pour les pièces épaisses.' },
+      { type: 'text', text: 'La saisie est l\'une des techniques les plus mal exÃ©cutÃ©es en cuisine amateur. RÃ©sultat : une viande grise, bouillie dans son jus, sans croÃ»te. Pourtant, les rÃ¨gles sont simples. Les comprendre transforme immÃ©diatement tes cuissons.' },
+      { type: 'heading', text: 'La rÃ©action de Maillard' },
+      { type: 'technique', title: 'Ce qui se passe chimiquement', text: 'Ã€ partir de 150Â°C, les acides aminÃ©s et les sucres rÃ©ducteurs en surface rÃ©agissent pour former des centaines de molÃ©cules aromatiques : c\'est la rÃ©action de Maillard. Elle crÃ©e la croÃ»te dorÃ©e, les arÃ´mes de grillÃ©, la saveur umami de la viande bien saisie. Ce n\'est pas une "caramÃ©lisation" â€” c\'est une rÃ©action de brunissement non enzymatique.' },
+      { type: 'warning', text: 'Si la poÃªle n\'est pas assez chaude, la viande libÃ¨re de l\'eau avant d\'atteindre 150Â°C. L\'eau forme de la vapeur qui empÃªche le contact avec la surface. RÃ©sultat : la viande cuit Ã  la vapeur, devient grise, pas de croÃ»te. C\'est l\'erreur nÂ°1.' },
+      { type: 'heading', text: 'PrÃ©parer la saisie' },
+      { type: 'technique', title: 'Choisir la bonne poÃªle', text: 'Fonte ou acier : conduisent et retiennent mieux la chaleur que l\'inox. L\'inox convient mais demande plus de vigilance. AntiadhÃ©sif : uniquement pour les prÃ©parations dÃ©licates (poisson, Å“ufs). Pour les viandes, Ã©viter â€” il ne monte pas assez chaud.' },
+      { type: 'technique', title: 'PrÃ©chauffer correctement', text: 'Feu vif, 3 Ã  4 minutes Ã  vide. Test : quelques gouttes d\'eau doivent s\'Ã©vaporer instantanÃ©ment en crÃ©pitant (effet Leidenfrost). Ajouter la matiÃ¨re grasse 30 secondes avant la viande : huile Ã  haute tempÃ©rature de fumÃ©e (arachide, pÃ©pins de raisin) ou beurre clarifiÃ©.' },
+      { type: 'technique', title: 'SÃ©cher la surface', text: 'Essuyer la viande avec du papier absorbant avant de saisir. L\'humiditÃ© en surface = vapeur = pas de Maillard. Pour un rÃ©sultat optimal, laisser la viande Ã  dÃ©couvert au rÃ©frigÃ©rateur 1h avant cuisson (sÃ¨che Ã  l\'air).' },
+      { type: 'tip', text: 'Sortir la viande du rÃ©frigÃ©rateur 20-30 min avant cuisson. Une viande froide refroidit la poÃªle dÃ¨s le contact et peut empÃªcher la saisie de dÃ©marrer correctement, surtout pour les piÃ¨ces Ã©paisses.' },
       { type: 'heading', text: 'Pendant la cuisson' },
-      { type: 'technique', title: 'Ne pas bouger la pièce', text: 'Déposer et ne pas toucher pendant 2-3 min. La viande adhère à la poêle au début, puis se décolle seule quand la croûte est formée. Si elle résiste quand tu essaies de la déplacer, c\'est qu\'elle n\'est pas prête — attends.' },
-      { type: 'technique', title: 'L\'arrosage au beurre (basting)', text: 'En fin de saisie : ajouter une noix de beurre, thym, ail écrasé. Incliner la poêle et arroser continuellement la viande avec le beurre fondu à l\'aide d\'une cuillère. Dore et parfume à la fois — technique des chefs pour les steaks et côtes de veau.' },
-      { type: 'technique', title: 'Les températures à cœur', text: 'Bœuf bleu : 45-48°C. Saignant : 50-52°C. Rosé : 55-57°C. À point : 60-63°C. Bien cuit : >68°C. Poulet min : 74°C. Porc : 65°C. Poisson mi-cuit : 45-50°C. Sans thermomètre sonde, la cuisson parfaite est impossible à reproduire.' },
-      { type: 'heading', text: 'Le repos — étape cruciale oubliée' },
-      { type: 'technique', title: 'Pourquoi laisser reposer', text: 'Pendant la cuisson, les jus migrent vers le centre. En reposant sur une grille (jamais sur une surface froide), les fibres musculaires se relâchent et les jus se redistribuent. Sans repos, ils coulent dans l\'assiette. Règle : le temps de repos = la moitié du temps de cuisson, minimum 5 minutes.' },
-      { type: 'tip', text: 'Couvrir la viande lâchement avec du papier aluminium pendant le repos — pas hermétiquement (la vapeur ramolle la croûte). L\'intérieur continue à cuire légèrement : prévoir 2-3°C de moins que la température cible.' },
-      { type: 'recap', text: 'Poêle très chaude + viande sèche = réaction de Maillard. Ne pas bouger = croûte qui se décolle seule. Température à cœur avec thermomètre. Repos = jus redistribués. Ces 4 règles changent tout.' },
-      { type: 'exercise', text: 'Prends un steak ou un blanc de poulet. Sèche la surface au papier absorbant, préchauffe ta poêle 3 min à feu vif. Saisis sans bouger, puis arroge au beurre. Mesure la température à cœur avec un thermomètre. Laisse reposer 5 min. Compare avec ta saisie habituelle.' },
+      { type: 'technique', title: 'Ne pas bouger la piÃ¨ce', text: 'DÃ©poser et ne pas toucher pendant 2-3 min. La viande adhÃ¨re Ã  la poÃªle au dÃ©but, puis se dÃ©colle seule quand la croÃ»te est formÃ©e. Si elle rÃ©siste quand tu essaies de la dÃ©placer, c\'est qu\'elle n\'est pas prÃªte â€” attends.' },
+      { type: 'technique', title: 'L\'arrosage au beurre (basting)', text: 'En fin de saisie : ajouter une noix de beurre, thym, ail Ã©crasÃ©. Incliner la poÃªle et arroser continuellement la viande avec le beurre fondu Ã  l\'aide d\'une cuillÃ¨re. Dore et parfume Ã  la fois â€” technique des chefs pour les steaks et cÃ´tes de veau.' },
+      { type: 'technique', title: 'Les tempÃ©ratures Ã  cÅ“ur', text: 'BÅ“uf bleu : 45-48Â°C. Saignant : 50-52Â°C. RosÃ© : 55-57Â°C. Ã€ point : 60-63Â°C. Bien cuit : >68Â°C. Poulet min : 74Â°C. Porc : 65Â°C. Poisson mi-cuit : 45-50Â°C. Sans thermomÃ¨tre sonde, la cuisson parfaite est impossible Ã  reproduire.' },
+      { type: 'heading', text: 'Le repos â€” Ã©tape cruciale oubliÃ©e' },
+      { type: 'technique', title: 'Pourquoi laisser reposer', text: 'Pendant la cuisson, les jus migrent vers le centre. En reposant sur une grille (jamais sur une surface froide), les fibres musculaires se relÃ¢chent et les jus se redistribuent. Sans repos, ils coulent dans l\'assiette. RÃ¨gle : le temps de repos = la moitiÃ© du temps de cuisson, minimum 5 minutes.' },
+      { type: 'tip', text: 'Couvrir la viande lÃ¢chement avec du papier aluminium pendant le repos â€” pas hermÃ©tiquement (la vapeur ramolle la croÃ»te). L\'intÃ©rieur continue Ã  cuire lÃ©gÃ¨rement : prÃ©voir 2-3Â°C de moins que la tempÃ©rature cible.' },
+      { type: 'recap', text: 'PoÃªle trÃ¨s chaude + viande sÃ¨che = rÃ©action de Maillard. Ne pas bouger = croÃ»te qui se dÃ©colle seule. TempÃ©rature Ã  cÅ“ur avec thermomÃ¨tre. Repos = jus redistribuÃ©s. Ces 4 rÃ¨gles changent tout.' },
+      { type: 'exercise', text: 'Prends un steak ou un blanc de poulet. SÃ¨che la surface au papier absorbant, prÃ©chauffe ta poÃªle 3 min Ã  feu vif. Saisis sans bouger, puis arroge au beurre. Mesure la tempÃ©rature Ã  cÅ“ur avec un thermomÃ¨tre. Laisse reposer 5 min. Compare avec ta saisie habituelle.' },
     ]),
   },
   {
     slug: 'coupes-avancees',
-    title: 'Coupes avancées',
-    description: 'Tournée, jardinière, paysanne, mandoline : les coupes qui impressionnent et servent.',
+    title: 'Coupes avancÃ©es',
+    description: 'TournÃ©e, jardiniÃ¨re, paysanne, mandoline : les coupes qui impressionnent et servent.',
     category: 'knife', skill: 'knife', difficulty: 2, icon: 'git-branch', gemCost: 30, xpReward: 120, order: 6,
     content: JSON.stringify([
-      { type: 'text', text: 'Après les coupes de base, voici les tailles qui font la différence dans un plat professionnel. Elles servent deux objectifs : l\'esthétique (présentation) et la fonctionnalité (cuisson homogène, texture en bouche). Une carotte tournée cuit à la même vitesse qu\'une autre carotte tournée — la précision n\'est pas uniquement décorative.' },
+      { type: 'text', text: 'AprÃ¨s les coupes de base, voici les tailles qui font la diffÃ©rence dans un plat professionnel. Elles servent deux objectifs : l\'esthÃ©tique (prÃ©sentation) et la fonctionnalitÃ© (cuisson homogÃ¨ne, texture en bouche). Une carotte tournÃ©e cuit Ã  la mÃªme vitesse qu\'une autre carotte tournÃ©e â€” la prÃ©cision n\'est pas uniquement dÃ©corative.' },
       { type: 'heading', text: 'Coupes utilitaires' },
-      { type: 'technique', title: 'Paysanne', text: 'Tranches de légumes de forme irrégulière (triangles, carrés, demi-cercles), 3-4 mm d\'épaisseur. Coupe rustique pour soupes et ragoûts — la forme importe peu, l\'uniformité d\'épaisseur est clé pour une cuisson égale. Technique rapide, parfaite pour les préparations mijotées.' },
-      { type: 'technique', title: 'Jardinière', text: 'Bâtonnets de 4×4×20 mm. Entre la julienne (fine) et la mirepoix (grosse). Idéale pour les légumes d\'accompagnement sautés ou à la vapeur — assez petite pour cuire vite, assez grosse pour avoir de la mâche. Base des bouquets de légumes glacés.' },
-      { type: 'technique', title: 'En losanges / biais', text: 'Couper en diagonale à 45°, en tranches de 3-5 mm. Donne des formes oblongues élégantes. Utilisé pour carottes, courgettes, poireaux, asperges. L\'avantage : plus de surface exposée à la chaleur = cuisson plus rapide et plus de brunissement.' },
-      { type: 'technique', title: 'Ciseler finement les échalotes', text: 'Couper l\'échalote en deux, côté plat sur la planche. Incisions horizontales parallèles à la planche (sans couper la racine), puis incisions verticales rapprochées, puis trancher perpendiculairement. Résultat : brunoise fine d\'échalote en quelques secondes.' },
-      { type: 'heading', text: 'La taille tournée' },
-      { type: 'technique', title: 'Légumes tournés', text: 'Tailler en forme de football américain à 7 facettes égales, 4-5 cm de long. Technique classique de la cuisine française pour les carottes, navets, pommes de terre. On utilise un couteau à tourner (ou un office). Tenir le légume entre pouce et index, tourner le légume vers soi en incisant. C\'est la taille la plus difficile — la régularité vient avec la pratique.' },
-      { type: 'tip', text: 'Les chutes des légumes tournés ne sont pas perdues : elles servent pour les bouillons, les purées ou les veloutés. En cuisine professionnelle, rien ne se jette.' },
+      { type: 'technique', title: 'Paysanne', text: 'Tranches de lÃ©gumes de forme irrÃ©guliÃ¨re (triangles, carrÃ©s, demi-cercles), 3-4 mm d\'Ã©paisseur. Coupe rustique pour soupes et ragoÃ»ts â€” la forme importe peu, l\'uniformitÃ© d\'Ã©paisseur est clÃ© pour une cuisson Ã©gale. Technique rapide, parfaite pour les prÃ©parations mijotÃ©es.' },
+      { type: 'technique', title: 'JardiniÃ¨re', text: 'BÃ¢tonnets de 4Ã—4Ã—20 mm. Entre la julienne (fine) et la mirepoix (grosse). IdÃ©ale pour les lÃ©gumes d\'accompagnement sautÃ©s ou Ã  la vapeur â€” assez petite pour cuire vite, assez grosse pour avoir de la mÃ¢che. Base des bouquets de lÃ©gumes glacÃ©s.' },
+      { type: 'technique', title: 'En losanges / biais', text: 'Couper en diagonale Ã  45Â°, en tranches de 3-5 mm. Donne des formes oblongues Ã©lÃ©gantes. UtilisÃ© pour carottes, courgettes, poireaux, asperges. L\'avantage : plus de surface exposÃ©e Ã  la chaleur = cuisson plus rapide et plus de brunissement.' },
+      { type: 'technique', title: 'Ciseler finement les Ã©chalotes', text: 'Couper l\'Ã©chalote en deux, cÃ´tÃ© plat sur la planche. Incisions horizontales parallÃ¨les Ã  la planche (sans couper la racine), puis incisions verticales rapprochÃ©es, puis trancher perpendiculairement. RÃ©sultat : brunoise fine d\'Ã©chalote en quelques secondes.' },
+      { type: 'heading', text: 'La taille tournÃ©e' },
+      { type: 'technique', title: 'LÃ©gumes tournÃ©s', text: 'Tailler en forme de football amÃ©ricain Ã  7 facettes Ã©gales, 4-5 cm de long. Technique classique de la cuisine franÃ§aise pour les carottes, navets, pommes de terre. On utilise un couteau Ã  tourner (ou un office). Tenir le lÃ©gume entre pouce et index, tourner le lÃ©gume vers soi en incisant. C\'est la taille la plus difficile â€” la rÃ©gularitÃ© vient avec la pratique.' },
+      { type: 'tip', text: 'Les chutes des lÃ©gumes tournÃ©s ne sont pas perdues : elles servent pour les bouillons, les purÃ©es ou les veloutÃ©s. En cuisine professionnelle, rien ne se jette.' },
       { type: 'heading', text: 'La mandoline' },
-      { type: 'technique', title: 'Utiliser une mandoline', text: 'Pour les tranches ultra-fines (1-2 mm) impossibles au couteau : fenouil, betterave, radis, courgette. Toujours utiliser le protège-doigts fourni, jamais les mains nues. Mouvement régulier, pression constante. La lame est chirurgicale — même une coupure légère est profonde.' },
-      { type: 'warning', text: 'La mandoline est l\'outil le plus dangereux de la cuisine. Aucune exception : toujours le protège-doigts. Quand le légume devient trop petit pour être tenu en sécurité, s\'arrêter — la chute n\'est pas un luxe.' },
+      { type: 'technique', title: 'Utiliser une mandoline', text: 'Pour les tranches ultra-fines (1-2 mm) impossibles au couteau : fenouil, betterave, radis, courgette. Toujours utiliser le protÃ¨ge-doigts fourni, jamais les mains nues. Mouvement rÃ©gulier, pression constante. La lame est chirurgicale â€” mÃªme une coupure lÃ©gÃ¨re est profonde.' },
+      { type: 'warning', text: 'La mandoline est l\'outil le plus dangereux de la cuisine. Aucune exception : toujours le protÃ¨ge-doigts. Quand le lÃ©gume devient trop petit pour Ãªtre tenu en sÃ©curitÃ©, s\'arrÃªter â€” la chute n\'est pas un luxe.' },
       { type: 'heading', text: 'Entretien du couteau' },
-      { type: 'technique', title: 'Affûtage au fusil', text: 'Avant chaque utilisation : 5-6 passes de chaque côté au fusil à 20°. Le fusil réaligne le fil sans enlever de métal. Il "rafraîchit" le tranchant entre les affûtages profonds.' },
-      { type: 'technique', title: 'Affûtage à la pierre', text: 'Tous les 2-3 mois selon l\'usage. Pierre grain 1000 (affûtage) puis grain 3000-6000 (finition). Angle constant à 15-20° selon le couteau. Ajouter de l\'eau ou de l\'huile selon la pierre. 10-15 passes de chaque côté, puis finir au fusil.' },
-      { type: 'tip', text: 'Test du papier : un couteau bien affûté coupe une feuille de papier en un seul mouvement, sans déchirer. Test de la tomate : si la tomate s\'écrase au lieu d\'être tranchée, le couteau est émoussé.' },
-      { type: 'recap', text: 'Paysanne → rustique, soupe. Jardinière → sauté, accompagnement. Biais → légumes élégants, plus de surface. Tournée → présentation classique. Mandoline → ultra-fine avec protège-doigts OBLIGATOIRE.' },
-      { type: 'exercise', text: 'Taille 3 carottes en jardinière (4×4×20 mm). Puis taille 2 tranches de fenouil à la mandoline (2 mm). Observe la différence de régularité entre le couteau et la mandoline. Fais sauter les carottes à la poêle — leur cuisson est uniforme ? Si non, tes tailles n\'étaient pas assez régulières.' },
+      { type: 'technique', title: 'AffÃ»tage au fusil', text: 'Avant chaque utilisation : 5-6 passes de chaque cÃ´tÃ© au fusil Ã  20Â°. Le fusil rÃ©aligne le fil sans enlever de mÃ©tal. Il "rafraÃ®chit" le tranchant entre les affÃ»tages profonds.' },
+      { type: 'technique', title: 'AffÃ»tage Ã  la pierre', text: 'Tous les 2-3 mois selon l\'usage. Pierre grain 1000 (affÃ»tage) puis grain 3000-6000 (finition). Angle constant Ã  15-20Â° selon le couteau. Ajouter de l\'eau ou de l\'huile selon la pierre. 10-15 passes de chaque cÃ´tÃ©, puis finir au fusil.' },
+      { type: 'tip', text: 'Test du papier : un couteau bien affÃ»tÃ© coupe une feuille de papier en un seul mouvement, sans dÃ©chirer. Test de la tomate : si la tomate s\'Ã©crase au lieu d\'Ãªtre tranchÃ©e, le couteau est Ã©moussÃ©.' },
+      { type: 'recap', text: 'Paysanne â†’ rustique, soupe. JardiniÃ¨re â†’ sautÃ©, accompagnement. Biais â†’ lÃ©gumes Ã©lÃ©gants, plus de surface. TournÃ©e â†’ prÃ©sentation classique. Mandoline â†’ ultra-fine avec protÃ¨ge-doigts OBLIGATOIRE.' },
+      { type: 'exercise', text: 'Taille 3 carottes en jardiniÃ¨re (4Ã—4Ã—20 mm). Puis taille 2 tranches de fenouil Ã  la mandoline (2 mm). Observe la diffÃ©rence de rÃ©gularitÃ© entre le couteau et la mandoline. Fais sauter les carottes Ã  la poÃªle â€” leur cuisson est uniforme ? Si non, tes tailles n\'Ã©taient pas assez rÃ©guliÃ¨res.' },
     ]),
   },
   {
     slug: 'cuisson-basse-temp',
-    title: 'Cuisson basse température',
-    description: 'La science de la cuisson douce : températures, timing, technique du bain-marie.',
+    title: 'Cuisson basse tempÃ©rature',
+    description: 'La science de la cuisson douce : tempÃ©ratures, timing, technique du bain-marie.',
     category: 'fire', skill: 'fire', difficulty: 3, icon: 'thermometer', gemCost: 50, xpReward: 180, order: 7,
     content: JSON.stringify([
-      { type: 'text', text: 'La cuisson basse température est l\'une des révolutions de la cuisine moderne. Entre 55 et 80°C, les protéines coagulent sans se contracter violemment. Résultat : viandes d\'une tendreté exceptionnelle, jus conservés, textures impossibles à obtenir à feu vif. C\'est la technique des cuisiniers étoilés — et elle est accessible.' },
-      { type: 'heading', text: 'La science derrière' },
-      { type: 'technique', title: 'Pourquoi les protéines durcissent à la chaleur', text: 'À haute température (>70°C), les fibres musculaires se contractent fortement et expulsent leur eau. C\'est pour ça qu\'une côte de bœuf bien cuite est sèche. En dessous de 65°C, les fibres coagulent mais restent souples, les jus restent à l\'intérieur. La différence de 10°C change tout.' },
-      { type: 'technique', title: 'Le collagène et le temps', text: 'Les morceaux durs (paleron, joue, jarret) sont riches en collagène. Ce collagène se transforme en gélatine à partir de 70°C — mais seulement avec le temps (3-8 heures). C\'est pourquoi un bœuf bourguignon mijoté 3h est fondant alors qu\'une côte de bœuf à 70°C pendant 20 min serait sèche.' },
-      { type: 'heading', text: 'Températures cibles par protéine' },
-      { type: 'technique', title: 'Bœuf et agneau', text: 'Bleu : 45-48°C. Saignant : 50-52°C. Rosé (recommandé) : 55-57°C. À point : 60-63°C. Bien cuit : >68°C. Pour un rôti basse température : four à 65°C, temps calculé selon l\'épaisseur (30 min par cm). Toujours terminer par une saisie à feu vif pour la croûte.' },
-      { type: 'technique', title: 'Volaille', text: 'Poulet minimum 74°C (sécurité alimentaire). Canard magret rosé : 58-60°C. Dinde entière : 74°C à cœur dans la partie la plus épaisse (cuisse). La volaille est moins indulgente que le bœuf — ne pas descendre sous les seuils de sécurité.' },
-      { type: 'technique', title: 'Poisson', text: 'Mi-cuit (nacré) : 45-50°C. Cuit à cœur : 55-60°C. Le poisson est extrêmement sensible : 5°C de trop et les protéines se désagrègent. Le bain-marie au four à 60°C est idéal pour un saumon entier ou un filet épais.' },
-      { type: 'technique', title: 'Porc et veau', text: 'Porc rosé : 63°C (OMS 2011, revu à la baisse de 71°C). Veau rosé : 58-60°C. Le filet de porc à basse température reste rosé et incroyablement juteux — à l\'opposé du filet sec et gris de la cuisson traditionnelle.' },
-      { type: 'heading', text: 'Techniques pratiques sans matériel pro' },
-      { type: 'technique', title: 'Méthode four + thermomètre', text: 'Four à 65-75°C (chaleur tournante). Saisir la pièce en cocotte à feu vif pour le Maillard. Enfourner avec thermomètre sonde, alarme réglée sur la température cible moins 3°C (la cuisson continue après sortie). Temps indicatif : 30-45 min par cm d\'épaisseur.' },
-      { type: 'technique', title: 'Le bain-marie au four', text: 'Pour les poissons et préparations délicates. Plat dans un bain d\'eau chaude (80°C), four à 80-90°C. L\'eau ne dépasse jamais 100°C et régule parfaitement la température. Idéal pour terrine, pâté, crème brûlée, saumon entier.' },
-      { type: 'technique', title: 'La glacière comme bain-marie', text: 'Pour maintenir une température précise sans matériel : remplir une glacière d\'eau à la bonne température (vérifier avec thermomètre). Immerger la pièce emballée sous vide (sac congélation zip avec l\'air chassé). Surveiller toutes les 30 min. Technique "pauvre" mais efficace pour les cuissons longues.' },
-      { type: 'warning', text: 'Ne jamais maintenir un aliment dans la zone de danger : 4°C à 60°C est la plage de développement des bactéries. Les cuissons basse température autour de 55°C doivent être courtes (<4h) ou utiliser une pasteurisation précise. Pour les longues cuissons (>4h), rester à 65°C minimum.' },
-      { type: 'tip', text: 'Un thermomètre sonde à lecture instantanée (15-30€) est l\'investissement qui change le plus la cuisine. Il rend la cuisson reproductible. Sans lui, même un chef expérimenté ne peut garantir un résultat constant.' },
-      { type: 'recap', text: 'Protéines < 65°C = tendres et juteuses. Collagène + temps = gélatine fondante. Saisie avant ou après pour la croûte. Thermomètre indispensable. Ne pas rester en zone 4-60°C plus de 4h. Four + bain-marie = technique accessible sans matériel pro.' },
-      { type: 'exercise', text: 'Cuis un filet de saumon épais (3 cm) au bain-marie : four à 80°C, plat dans de l\'eau chaude, 20-25 min. Contrôle la température à cœur : 48-50°C pour mi-cuit nacré. Compare la texture avec un saumon cuit à la poêle à feu vif. La différence est radicale.' },
+      { type: 'text', text: 'La cuisson basse tempÃ©rature est l\'une des rÃ©volutions de la cuisine moderne. Entre 55 et 80Â°C, les protÃ©ines coagulent sans se contracter violemment. RÃ©sultat : viandes d\'une tendretÃ© exceptionnelle, jus conservÃ©s, textures impossibles Ã  obtenir Ã  feu vif. C\'est la technique des cuisiniers Ã©toilÃ©s â€” et elle est accessible.' },
+      { type: 'heading', text: 'La science derriÃ¨re' },
+      { type: 'technique', title: 'Pourquoi les protÃ©ines durcissent Ã  la chaleur', text: 'Ã€ haute tempÃ©rature (>70Â°C), les fibres musculaires se contractent fortement et expulsent leur eau. C\'est pour Ã§a qu\'une cÃ´te de bÅ“uf bien cuite est sÃ¨che. En dessous de 65Â°C, les fibres coagulent mais restent souples, les jus restent Ã  l\'intÃ©rieur. La diffÃ©rence de 10Â°C change tout.' },
+      { type: 'technique', title: 'Le collagÃ¨ne et le temps', text: 'Les morceaux durs (paleron, joue, jarret) sont riches en collagÃ¨ne. Ce collagÃ¨ne se transforme en gÃ©latine Ã  partir de 70Â°C â€” mais seulement avec le temps (3-8 heures). C\'est pourquoi un bÅ“uf bourguignon mijotÃ© 3h est fondant alors qu\'une cÃ´te de bÅ“uf Ã  70Â°C pendant 20 min serait sÃ¨che.' },
+      { type: 'heading', text: 'TempÃ©ratures cibles par protÃ©ine' },
+      { type: 'technique', title: 'BÅ“uf et agneau', text: 'Bleu : 45-48Â°C. Saignant : 50-52Â°C. RosÃ© (recommandÃ©) : 55-57Â°C. Ã€ point : 60-63Â°C. Bien cuit : >68Â°C. Pour un rÃ´ti basse tempÃ©rature : four Ã  65Â°C, temps calculÃ© selon l\'Ã©paisseur (30 min par cm). Toujours terminer par une saisie Ã  feu vif pour la croÃ»te.' },
+      { type: 'technique', title: 'Volaille', text: 'Poulet minimum 74Â°C (sÃ©curitÃ© alimentaire). Canard magret rosÃ© : 58-60Â°C. Dinde entiÃ¨re : 74Â°C Ã  cÅ“ur dans la partie la plus Ã©paisse (cuisse). La volaille est moins indulgente que le bÅ“uf â€” ne pas descendre sous les seuils de sÃ©curitÃ©.' },
+      { type: 'technique', title: 'Poisson', text: 'Mi-cuit (nacrÃ©) : 45-50Â°C. Cuit Ã  cÅ“ur : 55-60Â°C. Le poisson est extrÃªmement sensible : 5Â°C de trop et les protÃ©ines se dÃ©sagrÃ¨gent. Le bain-marie au four Ã  60Â°C est idÃ©al pour un saumon entier ou un filet Ã©pais.' },
+      { type: 'technique', title: 'Porc et veau', text: 'Porc rosÃ© : 63Â°C (OMS 2011, revu Ã  la baisse de 71Â°C). Veau rosÃ© : 58-60Â°C. Le filet de porc Ã  basse tempÃ©rature reste rosÃ© et incroyablement juteux â€” Ã  l\'opposÃ© du filet sec et gris de la cuisson traditionnelle.' },
+      { type: 'heading', text: 'Techniques pratiques sans matÃ©riel pro' },
+      { type: 'technique', title: 'MÃ©thode four + thermomÃ¨tre', text: 'Four Ã  65-75Â°C (chaleur tournante). Saisir la piÃ¨ce en cocotte Ã  feu vif pour le Maillard. Enfourner avec thermomÃ¨tre sonde, alarme rÃ©glÃ©e sur la tempÃ©rature cible moins 3Â°C (la cuisson continue aprÃ¨s sortie). Temps indicatif : 30-45 min par cm d\'Ã©paisseur.' },
+      { type: 'technique', title: 'Le bain-marie au four', text: 'Pour les poissons et prÃ©parations dÃ©licates. Plat dans un bain d\'eau chaude (80Â°C), four Ã  80-90Â°C. L\'eau ne dÃ©passe jamais 100Â°C et rÃ©gule parfaitement la tempÃ©rature. IdÃ©al pour terrine, pÃ¢tÃ©, crÃ¨me brÃ»lÃ©e, saumon entier.' },
+      { type: 'technique', title: 'La glaciÃ¨re comme bain-marie', text: 'Pour maintenir une tempÃ©rature prÃ©cise sans matÃ©riel : remplir une glaciÃ¨re d\'eau Ã  la bonne tempÃ©rature (vÃ©rifier avec thermomÃ¨tre). Immerger la piÃ¨ce emballÃ©e sous vide (sac congÃ©lation zip avec l\'air chassÃ©). Surveiller toutes les 30 min. Technique "pauvre" mais efficace pour les cuissons longues.' },
+      { type: 'warning', text: 'Ne jamais maintenir un aliment dans la zone de danger : 4Â°C Ã  60Â°C est la plage de dÃ©veloppement des bactÃ©ries. Les cuissons basse tempÃ©rature autour de 55Â°C doivent Ãªtre courtes (<4h) ou utiliser une pasteurisation prÃ©cise. Pour les longues cuissons (>4h), rester Ã  65Â°C minimum.' },
+      { type: 'tip', text: 'Un thermomÃ¨tre sonde Ã  lecture instantanÃ©e (15-30â‚¬) est l\'investissement qui change le plus la cuisine. Il rend la cuisson reproductible. Sans lui, mÃªme un chef expÃ©rimentÃ© ne peut garantir un rÃ©sultat constant.' },
+      { type: 'recap', text: 'ProtÃ©ines < 65Â°C = tendres et juteuses. CollagÃ¨ne + temps = gÃ©latine fondante. Saisie avant ou aprÃ¨s pour la croÃ»te. ThermomÃ¨tre indispensable. Ne pas rester en zone 4-60Â°C plus de 4h. Four + bain-marie = technique accessible sans matÃ©riel pro.' },
+      { type: 'exercise', text: 'Cuis un filet de saumon Ã©pais (3 cm) au bain-marie : four Ã  80Â°C, plat dans de l\'eau chaude, 20-25 min. ContrÃ´le la tempÃ©rature Ã  cÅ“ur : 48-50Â°C pour mi-cuit nacrÃ©. Compare la texture avec un saumon cuit Ã  la poÃªle Ã  feu vif. La diffÃ©rence est radicale.' },
     ]),
   },
   {
     slug: 'oeufs-mille-facons',
-    title: 'Les œufs : 10 techniques maîtrisées',
-    description: 'Poché, mollet, en cocotte, mayonnaise… L\'œuf est le couteau suisse de la cuisine.',
+    title: 'Les Å“ufs : 10 techniques maÃ®trisÃ©es',
+    description: 'PochÃ©, mollet, en cocotte, mayonnaiseâ€¦ L\'Å“uf est le couteau suisse de la cuisine.',
     category: 'fire', skill: 'fire', difficulty: 1, icon: 'egg', gemCost: 0, xpReward: 80, order: 4,
     content: JSON.stringify([
-      { type: 'text', text: 'L\'œuf est l\'ingrédient le plus polyvalent de la cuisine. Il lie, émulsionne, lève, épaissit, colore et nourrit. Chaque technique de cuisson donne un résultat radicalement différent. Les maîtriser toutes, c\'est débloquer une palette technique immense.' },
-      { type: 'heading', text: 'Comprendre l\'œuf' },
-      { type: 'technique', title: 'La structure', text: 'Le blanc (albumine, 60 % de l\'œuf) coagule à partir de 62°C. Le jaune (lipides + protéines) coagule à 68-70°C. Cette différence de 6-8°C est la clé de toutes les cuissons précises : mollet, coulant, poché mi-cuit.' },
-      { type: 'technique', title: 'Fraîcheur', text: 'Test de flottabilité : plonger dans un verre d\'eau. Frais → tombe au fond à plat. 1 semaine → se redresse légèrement. 3 semaines → flotte. Un œuf qui flotte = à jeter. Frais ≠ meilleur pour tout : un œuf de 1 semaine se pèle mieux dur, un œuf très frais est meilleur poché.' },
+      { type: 'text', text: 'L\'Å“uf est l\'ingrÃ©dient le plus polyvalent de la cuisine. Il lie, Ã©mulsionne, lÃ¨ve, Ã©paissit, colore et nourrit. Chaque technique de cuisson donne un rÃ©sultat radicalement diffÃ©rent. Les maÃ®triser toutes, c\'est dÃ©bloquer une palette technique immense.' },
+      { type: 'heading', text: 'Comprendre l\'Å“uf' },
+      { type: 'technique', title: 'La structure', text: 'Le blanc (albumine, 60 % de l\'Å“uf) coagule Ã  partir de 62Â°C. Le jaune (lipides + protÃ©ines) coagule Ã  68-70Â°C. Cette diffÃ©rence de 6-8Â°C est la clÃ© de toutes les cuissons prÃ©cises : mollet, coulant, pochÃ© mi-cuit.' },
+      { type: 'technique', title: 'FraÃ®cheur', text: 'Test de flottabilitÃ© : plonger dans un verre d\'eau. Frais â†’ tombe au fond Ã  plat. 1 semaine â†’ se redresse lÃ©gÃ¨rement. 3 semaines â†’ flotte. Un Å“uf qui flotte = Ã  jeter. Frais â‰  meilleur pour tout : un Å“uf de 1 semaine se pÃ¨le mieux dur, un Å“uf trÃ¨s frais est meilleur pochÃ©.' },
       { type: 'heading', text: 'Les 10 cuissons' },
-      { type: 'technique', title: '1. À la coque (3 min)', text: 'Eau bouillante, œuf à température ambiante (choc thermique sinon fissure). 3 minutes exactement. Blanc tremblant, jaune totalement liquide. Mouillettes indispensables.' },
-      { type: 'technique', title: '2. Mollet (6 min)', text: '6 minutes dans l\'eau bouillante. Blanc ferme, jaune crémeux coulant au centre. Difficile à peler : choc thermique eau glacée 2 min obligatoire, puis rouler doucement sur le plan de travail.' },
-      { type: 'technique', title: '3. Dur (10-12 min)', text: '10 min pour jaune ferme mais encore légèrement moelleux. 12 min = jaune sec. Choc thermique impératif sinon le jaune vire au vert-gris (réaction soufre/fer). Peler sous l\'eau froide courante.' },
-      { type: 'technique', title: '4. Poché', text: 'Eau frémissante (88-90°C, jamais bouillante) + filet de vinaigre blanc. Créer un tourbillon, casser l\'œuf dans un ramequin d\'abord, glisser délicatement. 3 minutes. Retirer avec écumoire, éponger. Le vinaigre aide le blanc à coaguler autour du jaune — l\'œuf très frais est indispensable.' },
-      { type: 'technique', title: '5. Au plat / miroir', text: 'Beurre (ou huile) à feu très doux. Casser délicatement. Couvrir avec couvercle — la vapeur cuit le dessus sans croûte. Blanc pris, jaune voilé mais coulant. Variante : œuf au plat classique = sans couvercle, blanc croustillant sur les bords, jaune liquide.' },
-      { type: 'technique', title: '6. Brouillés (la technique pro)', text: 'Feu minimum. Beurre fondu. Œufs battus avec sel et poivre. Remuer en permanence avec spatule souple. La cuisson prend 5-7 minutes à feu doux. Retirer avant que ce soit "cuit" — la chaleur résiduelle finit. Ajouter crème fraîche hors du feu. Résultat : texture crémeuse, presque liquide, comme un nuage.' },
-      { type: 'technique', title: '7. En cocotte', text: 'Ramequin beurré, fond de crème ou coulis. Casser l\'œuf dedans. Bain-marie au four 180°C, 8-10 minutes (blanc pris, jaune coulant). Couvrir avec papier alu si le dessus dore trop vite. Idéal avec truffe, champignons ou jambon Ibérique.' },
-      { type: 'technique', title: '8. Omelette', text: 'Fouetter les œufs 30 secondes (pas trop — la mousse donne une omelette moins soyeuse). Beurre noisette à feu vif. Verser les œufs, spatule en bois pour ramener vers le centre. Plier en portefeuille avant que le dessus soit sec — l\'intérieur bave légèrement. Glisser sur l\'assiette sans la retourner.' },
-      { type: 'technique', title: '9. Mayonnaise maison', text: '1 jaune + 1 c. moutarde + sel + poivre. Fouetter. Ajouter 20 cl d\'huile goutte à goutte au début, puis en filet mince. L\'émulsion se forme si jaune + huile sont à même température. Si elle tranche : recommencer avec un jaune frais, ajouter la mayonnaise tranchée en filet dedans.' },
-      { type: 'technique', title: '10. Œufs à 65°C', text: 'La cuisson ultime : four à vapeur ou bain-marie à 65°C exactement, 1 heure. Le blanc est tout juste pris (gélatineux), le jaune est coulant et d\'une onctuosité extrême. Texture unique impossible à obtenir autrement. Technique des restaurants étoilés.' },
-      { type: 'warning', text: 'Ne jamais cuire des œufs pochés ou mollets pour personnes vulnérables (femmes enceintes, enfants, immunodéprimés) — le jaune n\'est pas pasteurisé.' },
-      { type: 'tip', text: 'Pour une omelette parfaitement jaune pâle (sans marron), utiliser une poêle antiadhésive et feu moyen-doux. Une omelette "trop cuite" à la française a encore l\'air crue en surface — c\'est voulu.' },
-      { type: 'recap', text: 'Coque 3 min → mollet 6 min → dur 10 min. Poché : vinaigre + tourbillon. Brouillés : feu doux, crème hors feu. Omelette : plier avant que ce soit sec. Mayo : même température jaune/huile. 65°C : texture unique.' },
-      { type: 'exercise', text: 'Fais les 3 cuissons de base en 15 minutes : un œuf à la coque (3 min), un mollet (6 min), un poché. Compare les textures. Le mollet doit avoir le blanc ferme et le jaune crémeux — s\'il est identique au dur, tu as cuit trop longtemps.' },
+      { type: 'technique', title: '1. Ã€ la coque (3 min)', text: 'Eau bouillante, Å“uf Ã  tempÃ©rature ambiante (choc thermique sinon fissure). 3 minutes exactement. Blanc tremblant, jaune totalement liquide. Mouillettes indispensables.' },
+      { type: 'technique', title: '2. Mollet (6 min)', text: '6 minutes dans l\'eau bouillante. Blanc ferme, jaune crÃ©meux coulant au centre. Difficile Ã  peler : choc thermique eau glacÃ©e 2 min obligatoire, puis rouler doucement sur le plan de travail.' },
+      { type: 'technique', title: '3. Dur (10-12 min)', text: '10 min pour jaune ferme mais encore lÃ©gÃ¨rement moelleux. 12 min = jaune sec. Choc thermique impÃ©ratif sinon le jaune vire au vert-gris (rÃ©action soufre/fer). Peler sous l\'eau froide courante.' },
+      { type: 'technique', title: '4. PochÃ©', text: 'Eau frÃ©missante (88-90Â°C, jamais bouillante) + filet de vinaigre blanc. CrÃ©er un tourbillon, casser l\'Å“uf dans un ramequin d\'abord, glisser dÃ©licatement. 3 minutes. Retirer avec Ã©cumoire, Ã©ponger. Le vinaigre aide le blanc Ã  coaguler autour du jaune â€” l\'Å“uf trÃ¨s frais est indispensable.' },
+      { type: 'technique', title: '5. Au plat / miroir', text: 'Beurre (ou huile) Ã  feu trÃ¨s doux. Casser dÃ©licatement. Couvrir avec couvercle â€” la vapeur cuit le dessus sans croÃ»te. Blanc pris, jaune voilÃ© mais coulant. Variante : Å“uf au plat classique = sans couvercle, blanc croustillant sur les bords, jaune liquide.' },
+      { type: 'technique', title: '6. BrouillÃ©s (la technique pro)', text: 'Feu minimum. Beurre fondu. Å’ufs battus avec sel et poivre. Remuer en permanence avec spatule souple. La cuisson prend 5-7 minutes Ã  feu doux. Retirer avant que ce soit "cuit" â€” la chaleur rÃ©siduelle finit. Ajouter crÃ¨me fraÃ®che hors du feu. RÃ©sultat : texture crÃ©meuse, presque liquide, comme un nuage.' },
+      { type: 'technique', title: '7. En cocotte', text: 'Ramequin beurrÃ©, fond de crÃ¨me ou coulis. Casser l\'Å“uf dedans. Bain-marie au four 180Â°C, 8-10 minutes (blanc pris, jaune coulant). Couvrir avec papier alu si le dessus dore trop vite. IdÃ©al avec truffe, champignons ou jambon IbÃ©rique.' },
+      { type: 'technique', title: '8. Omelette', text: 'Fouetter les Å“ufs 30 secondes (pas trop â€” la mousse donne une omelette moins soyeuse). Beurre noisette Ã  feu vif. Verser les Å“ufs, spatule en bois pour ramener vers le centre. Plier en portefeuille avant que le dessus soit sec â€” l\'intÃ©rieur bave lÃ©gÃ¨rement. Glisser sur l\'assiette sans la retourner.' },
+      { type: 'technique', title: '9. Mayonnaise maison', text: '1 jaune + 1 c. moutarde + sel + poivre. Fouetter. Ajouter 20 cl d\'huile goutte Ã  goutte au dÃ©but, puis en filet mince. L\'Ã©mulsion se forme si jaune + huile sont Ã  mÃªme tempÃ©rature. Si elle tranche : recommencer avec un jaune frais, ajouter la mayonnaise tranchÃ©e en filet dedans.' },
+      { type: 'technique', title: '10. Å’ufs Ã  65Â°C', text: 'La cuisson ultime : four Ã  vapeur ou bain-marie Ã  65Â°C exactement, 1 heure. Le blanc est tout juste pris (gÃ©latineux), le jaune est coulant et d\'une onctuositÃ© extrÃªme. Texture unique impossible Ã  obtenir autrement. Technique des restaurants Ã©toilÃ©s.' },
+      { type: 'warning', text: 'Ne jamais cuire des Å“ufs pochÃ©s ou mollets pour personnes vulnÃ©rables (femmes enceintes, enfants, immunodÃ©primÃ©s) â€” le jaune n\'est pas pasteurisÃ©.' },
+      { type: 'tip', text: 'Pour une omelette parfaitement jaune pÃ¢le (sans marron), utiliser une poÃªle antiadhÃ©sive et feu moyen-doux. Une omelette "trop cuite" Ã  la franÃ§aise a encore l\'air crue en surface â€” c\'est voulu.' },
+      { type: 'recap', text: 'Coque 3 min â†’ mollet 6 min â†’ dur 10 min. PochÃ© : vinaigre + tourbillon. BrouillÃ©s : feu doux, crÃ¨me hors feu. Omelette : plier avant que ce soit sec. Mayo : mÃªme tempÃ©rature jaune/huile. 65Â°C : texture unique.' },
+      { type: 'exercise', text: 'Fais les 3 cuissons de base en 15 minutes : un Å“uf Ã  la coque (3 min), un mollet (6 min), un pochÃ©. Compare les textures. Le mollet doit avoir le blanc ferme et le jaune crÃ©meux â€” s\'il est identique au dur, tu as cuit trop longtemps.' },
     ]),
   },
   {
     slug: 'sauces-meres',
-    title: 'Les 5 sauces mères',
-    description: 'Béchamel, velouté, espagnole, hollandaise, tomate : les ADN de toute la gastronomie française.',
+    title: 'Les 5 sauces mÃ¨res',
+    description: 'BÃ©chamel, veloutÃ©, espagnole, hollandaise, tomate : les ADN de toute la gastronomie franÃ§aise.',
     category: 'fire', skill: 'fire', difficulty: 2, icon: 'droplets', gemCost: 30, xpReward: 120, order: 9,
     content: JSON.stringify([
-      { type: 'text', text: 'Auguste Escoffier codifie au XIXe siècle les 5 sauces mères : toutes les sauces classiques en dérivent. Les maîtriser, c\'est détenir les fondations de la gastronomie française et d\'une partie de la gastronomie mondiale. Chaque sauce repose sur une technique précise, reproductible, immuable.' },
-      { type: 'heading', text: '1. La béchamel' },
-      { type: 'technique', title: 'Recette et technique', text: 'Roux blanc (beurre + farine en égales proportions, 50 g chacun) cuit 2 minutes sans coloration. Verser 500 ml lait chaud en fouettant sans cesse. Cuire 5 minutes jusqu\'à épaississement, sel, poivre, noix de muscade. Épaisseur variable : plus de farine = plus épaisse (garniture soufflé) ; moins = plus fluide (lasagnes).' },
-      { type: 'technique', title: 'Dérivées', text: 'Mornay = béchamel + jaune d\'œuf + gruyère râpé (gratin dauphinois, croque-monsieur). Soubise = béchamel + oignons fondus passés au tamis (accompagnement). Nantua = béchamel + beurre d\'écrevisse (quenelles).' },
-      { type: 'heading', text: '2. Le velouté' },
-      { type: 'technique', title: 'Recette et technique', text: 'Roux blanc + fond blanc (volaille, veau ou poisson selon le plat) au lieu du lait. Même technique, même ratio, mais résultat plus délicat et savoureux. 500 ml de fond pour 50 g de roux. Réduire légèrement, assaisonner. La qualité du fond conditionne tout.' },
-      { type: 'technique', title: 'Dérivées', text: 'Sauce Allemande = velouté de veau + jaunes d\'œufs + crème (liaison à l\'œuf). Suprême = velouté de volaille + crème réduite + beurre monté (volailles pochées). Vin blanc = velouté de poisson + vin blanc réduit + crème (sole, bar).' },
+      { type: 'text', text: 'Auguste Escoffier codifie au XIXe siÃ¨cle les 5 sauces mÃ¨res : toutes les sauces classiques en dÃ©rivent. Les maÃ®triser, c\'est dÃ©tenir les fondations de la gastronomie franÃ§aise et d\'une partie de la gastronomie mondiale. Chaque sauce repose sur une technique prÃ©cise, reproductible, immuable.' },
+      { type: 'heading', text: '1. La bÃ©chamel' },
+      { type: 'technique', title: 'Recette et technique', text: 'Roux blanc (beurre + farine en Ã©gales proportions, 50 g chacun) cuit 2 minutes sans coloration. Verser 500 ml lait chaud en fouettant sans cesse. Cuire 5 minutes jusqu\'Ã  Ã©paississement, sel, poivre, noix de muscade. Ã‰paisseur variable : plus de farine = plus Ã©paisse (garniture soufflÃ©) ; moins = plus fluide (lasagnes).' },
+      { type: 'technique', title: 'DÃ©rivÃ©es', text: 'Mornay = bÃ©chamel + jaune d\'Å“uf + gruyÃ¨re rÃ¢pÃ© (gratin dauphinois, croque-monsieur). Soubise = bÃ©chamel + oignons fondus passÃ©s au tamis (accompagnement). Nantua = bÃ©chamel + beurre d\'Ã©crevisse (quenelles).' },
+      { type: 'heading', text: '2. Le veloutÃ©' },
+      { type: 'technique', title: 'Recette et technique', text: 'Roux blanc + fond blanc (volaille, veau ou poisson selon le plat) au lieu du lait. MÃªme technique, mÃªme ratio, mais rÃ©sultat plus dÃ©licat et savoureux. 500 ml de fond pour 50 g de roux. RÃ©duire lÃ©gÃ¨rement, assaisonner. La qualitÃ© du fond conditionne tout.' },
+      { type: 'technique', title: 'DÃ©rivÃ©es', text: 'Sauce Allemande = veloutÃ© de veau + jaunes d\'Å“ufs + crÃ¨me (liaison Ã  l\'Å“uf). SuprÃªme = veloutÃ© de volaille + crÃ¨me rÃ©duite + beurre montÃ© (volailles pochÃ©es). Vin blanc = veloutÃ© de poisson + vin blanc rÃ©duit + crÃ¨me (sole, bar).' },
       { type: 'heading', text: '3. La sauce espagnole (fond brun)' },
-      { type: 'technique', title: 'Recette et technique', text: 'Roux brun (beurre + farine cuits jusqu\'à coloration noisette, 10-15 min) + fond brun (os rôtis + légumes caramélisés + eau réduite plusieurs heures). Long, complexe, riche. La base de toute cuisine braisée et de tous les jus.' },
-      { type: 'technique', title: 'Dérivées', text: 'Demi-glace = espagnole réduite de moitié (texture sirupeuse, intense). Bordelaise = demi-glace + échalotes + vin de Bordeaux + moelle (entrecôte). Chasseur = demi-glace + champignons + tomates + estragon (volaille). Périgueux = demi-glace + truffe.' },
+      { type: 'technique', title: 'Recette et technique', text: 'Roux brun (beurre + farine cuits jusqu\'Ã  coloration noisette, 10-15 min) + fond brun (os rÃ´tis + lÃ©gumes caramÃ©lisÃ©s + eau rÃ©duite plusieurs heures). Long, complexe, riche. La base de toute cuisine braisÃ©e et de tous les jus.' },
+      { type: 'technique', title: 'DÃ©rivÃ©es', text: 'Demi-glace = espagnole rÃ©duite de moitiÃ© (texture sirupeuse, intense). Bordelaise = demi-glace + Ã©chalotes + vin de Bordeaux + moelle (entrecÃ´te). Chasseur = demi-glace + champignons + tomates + estragon (volaille). PÃ©rigueux = demi-glace + truffe.' },
       { type: 'heading', text: '4. La sauce hollandaise' },
-      { type: 'technique', title: 'Recette et technique', text: 'Réduction de vinaigre blanc + poivre mignonette (2 c.) → concentrée à 1 c. Fouetter 3 jaunes avec la réduction refroidie au bain-marie (60-65°C) jusqu\'au ruban. Monter en incorporant 200 g de beurre clarifié fondu en filet continu en fouettant. Assaisonner, jus de citron. Température critique : si dépasse 68°C, les jaunes coagulent — bain-marie pas trop chaud.' },
-      { type: 'technique', title: 'Dérivées', text: 'Béarnaise = réduction échalotes/estragon/vinaigre + estragon frais à la fin (steak, poisson gras). Mousseline = hollandaise + crème fouettée incorporée au dernier moment (texture aérienne, asperges). Maltaise = hollandaise + jus de sanguine (poisson, asperges).' },
+      { type: 'technique', title: 'Recette et technique', text: 'RÃ©duction de vinaigre blanc + poivre mignonette (2 c.) â†’ concentrÃ©e Ã  1 c. Fouetter 3 jaunes avec la rÃ©duction refroidie au bain-marie (60-65Â°C) jusqu\'au ruban. Monter en incorporant 200 g de beurre clarifiÃ© fondu en filet continu en fouettant. Assaisonner, jus de citron. TempÃ©rature critique : si dÃ©passe 68Â°C, les jaunes coagulent â€” bain-marie pas trop chaud.' },
+      { type: 'technique', title: 'DÃ©rivÃ©es', text: 'BÃ©arnaise = rÃ©duction Ã©chalotes/estragon/vinaigre + estragon frais Ã  la fin (steak, poisson gras). Mousseline = hollandaise + crÃ¨me fouettÃ©e incorporÃ©e au dernier moment (texture aÃ©rienne, asperges). Maltaise = hollandaise + jus de sanguine (poisson, asperges).' },
       { type: 'heading', text: '5. La sauce tomate' },
-      { type: 'technique', title: 'Recette et technique', text: 'Oignon + carotte (mirepoix) sués dans huile d\'olive. Concentré de tomate caramélisé 2 min. Tomates entières pelées concassées + bouquet garni + sel. Mijoter 30-45 min à feu doux. Mixer ou passer au chinois selon texture souhaitée. L\'acidité se neutralise avec une pincée de sucre ou en allongeant la cuisson.' },
-      { type: 'technique', title: 'Dérivées', text: 'Arrabbiata = tomate + piment frais + ail (pâtes). Napolitaine = tomate + basilic + ail (pizza, pâtes simples). Sauce vierge = tomates crues concassées + basilic + huile d\'olive (poisson chaud, tartares).' },
-      { type: 'warning', text: 'La hollandaise et la béarnaise sont des sauces instables à température : si elles refroidissent ou restent trop longtemps, elles se séparent. Les maintenir à 55-60°C au bain-marie chaud, servir dans les 2 heures.' },
-      { type: 'tip', text: 'Un bon fond est irremplaçable. La différence entre un plat amateur et un plat professionnel réside souvent là : un fond brun maison fait en 4h transforme une sauce en quelque chose d\'impossible à reproduire avec des cubes.' },
-      { type: 'recap', text: 'Béchamel = roux blanc + lait. Velouté = roux blanc + fond. Espagnole = roux brun + fond brun. Hollandaise = jaunes montés au beurre clarifié. Tomate = mirepoix + tomates mijotées. Chaque sauce engendre une famille de dérivées infinies.' },
-      { type: 'exercise', text: 'Réalise une béchamel épaisse (100 g beurre + 100 g farine + 1L lait). À mi-parcours, prélève une portion, ajoute du gruyère râpé et un jaune d\'œuf : tu viens de faire une Mornay. Nappe un gratin et passe au four. C\'est ta première dérivée de sauce mère.' },
+      { type: 'technique', title: 'Recette et technique', text: 'Oignon + carotte (mirepoix) suÃ©s dans huile d\'olive. ConcentrÃ© de tomate caramÃ©lisÃ© 2 min. Tomates entiÃ¨res pelÃ©es concassÃ©es + bouquet garni + sel. Mijoter 30-45 min Ã  feu doux. Mixer ou passer au chinois selon texture souhaitÃ©e. L\'aciditÃ© se neutralise avec une pincÃ©e de sucre ou en allongeant la cuisson.' },
+      { type: 'technique', title: 'DÃ©rivÃ©es', text: 'Arrabbiata = tomate + piment frais + ail (pÃ¢tes). Napolitaine = tomate + basilic + ail (pizza, pÃ¢tes simples). Sauce vierge = tomates crues concassÃ©es + basilic + huile d\'olive (poisson chaud, tartares).' },
+      { type: 'warning', text: 'La hollandaise et la bÃ©arnaise sont des sauces instables Ã  tempÃ©rature : si elles refroidissent ou restent trop longtemps, elles se sÃ©parent. Les maintenir Ã  55-60Â°C au bain-marie chaud, servir dans les 2 heures.' },
+      { type: 'tip', text: 'Un bon fond est irremplaÃ§able. La diffÃ©rence entre un plat amateur et un plat professionnel rÃ©side souvent lÃ  : un fond brun maison fait en 4h transforme une sauce en quelque chose d\'impossible Ã  reproduire avec des cubes.' },
+      { type: 'recap', text: 'BÃ©chamel = roux blanc + lait. VeloutÃ© = roux blanc + fond. Espagnole = roux brun + fond brun. Hollandaise = jaunes montÃ©s au beurre clarifiÃ©. Tomate = mirepoix + tomates mijotÃ©es. Chaque sauce engendre une famille de dÃ©rivÃ©es infinies.' },
+      { type: 'exercise', text: 'RÃ©alise une bÃ©chamel Ã©paisse (100 g beurre + 100 g farine + 1L lait). Ã€ mi-parcours, prÃ©lÃ¨ve une portion, ajoute du gruyÃ¨re rÃ¢pÃ© et un jaune d\'Å“uf : tu viens de faire une Mornay. Nappe un gratin et passe au four. C\'est ta premiÃ¨re dÃ©rivÃ©e de sauce mÃ¨re.' },
     ]),
   },
   {
     slug: 'emulsions-vinaigrettes',
-    title: 'Émulsions & vinaigrettes',
-    description: 'Vinaigrette, mayonnaise, beurre blanc : la science des sauces froides et émulsionnées.',
+    title: 'Ã‰mulsions & vinaigrettes',
+    description: 'Vinaigrette, mayonnaise, beurre blanc : la science des sauces froides et Ã©mulsionnÃ©es.',
     category: 'seasoning', skill: 'seasoning', difficulty: 2, icon: 'blend', gemCost: 30, xpReward: 120, order: 10,
     content: JSON.stringify([
-      { type: 'text', text: 'Une émulsion, c\'est un mélange stable de deux liquides qui normalement ne se mélangent pas : huile et eau. La mayonnaise, la vinaigrette, le beurre blanc, la hollandaise sont toutes des émulsions. Comprendre leur chimie permet de les réussir à coup sûr — et de les rattraper quand elles tournent.' },
-      { type: 'heading', text: 'La chimie des émulsions' },
-      { type: 'technique', title: 'Émulsifiant : le pont moléculaire', text: 'Un émulsifiant possède une tête hydrophile (aime l\'eau) et une queue lipophile (aime l\'huile). Il s\'interpose entre les deux phases et crée une liaison stable. La lécithine du jaune d\'œuf est l\'émulsifiant naturel le plus efficace. La moutarde en contient également (mucilage). La caséine du beurre crée les émulsions thermiques.' },
-      { type: 'technique', title: 'Émulsion temporaire vs stable', text: 'Vinaigrette sans moutarde : émulsion temporaire (se sépare après agitation). Avec moutarde : semi-stable (tient 30 min). Mayonnaise avec jaune : stable (tient des jours). Plus il y a d\'émulsifiant par rapport au volume d\'huile, plus l\'émulsion est stable.' },
+      { type: 'text', text: 'Une Ã©mulsion, c\'est un mÃ©lange stable de deux liquides qui normalement ne se mÃ©langent pas : huile et eau. La mayonnaise, la vinaigrette, le beurre blanc, la hollandaise sont toutes des Ã©mulsions. Comprendre leur chimie permet de les rÃ©ussir Ã  coup sÃ»r â€” et de les rattraper quand elles tournent.' },
+      { type: 'heading', text: 'La chimie des Ã©mulsions' },
+      { type: 'technique', title: 'Ã‰mulsifiant : le pont molÃ©culaire', text: 'Un Ã©mulsifiant possÃ¨de une tÃªte hydrophile (aime l\'eau) et une queue lipophile (aime l\'huile). Il s\'interpose entre les deux phases et crÃ©e une liaison stable. La lÃ©cithine du jaune d\'Å“uf est l\'Ã©mulsifiant naturel le plus efficace. La moutarde en contient Ã©galement (mucilage). La casÃ©ine du beurre crÃ©e les Ã©mulsions thermiques.' },
+      { type: 'technique', title: 'Ã‰mulsion temporaire vs stable', text: 'Vinaigrette sans moutarde : Ã©mulsion temporaire (se sÃ©pare aprÃ¨s agitation). Avec moutarde : semi-stable (tient 30 min). Mayonnaise avec jaune : stable (tient des jours). Plus il y a d\'Ã©mulsifiant par rapport au volume d\'huile, plus l\'Ã©mulsion est stable.' },
       { type: 'heading', text: 'La vinaigrette parfaite' },
-      { type: 'technique', title: 'Ratio et ordre', text: 'Règle : 1 part vinaigre pour 3 parts huile. Commencer par le sel dans le vinaigre (il se dissout dans l\'eau, pas dans l\'huile). Moutarde + échalote ciselée. Fouetter en ajoutant l\'huile en filet. Poivre à la fin. Le sel dissous dans le vinaigre est la base invisible de toute vinaigrette réussie.' },
-      { type: 'technique', title: 'Variations', text: 'Vinaigrette balsamique : vinaigre balsamique + huile d\'olive + miel (1 c.). Vinaigrette asiatique : citron vert + sauce soja + huile de sésame + gingembre râpé. Vinaigrette crémeuse : 1 yaourt + 1 c. moutarde + filet citron + huile d\'olive. Caesar : jaune cru + anchois mixés + citron + worcestershire + parmesan + moutarde + huile.' },
+      { type: 'technique', title: 'Ratio et ordre', text: 'RÃ¨gle : 1 part vinaigre pour 3 parts huile. Commencer par le sel dans le vinaigre (il se dissout dans l\'eau, pas dans l\'huile). Moutarde + Ã©chalote ciselÃ©e. Fouetter en ajoutant l\'huile en filet. Poivre Ã  la fin. Le sel dissous dans le vinaigre est la base invisible de toute vinaigrette rÃ©ussie.' },
+      { type: 'technique', title: 'Variations', text: 'Vinaigrette balsamique : vinaigre balsamique + huile d\'olive + miel (1 c.). Vinaigrette asiatique : citron vert + sauce soja + huile de sÃ©same + gingembre rÃ¢pÃ©. Vinaigrette crÃ©meuse : 1 yaourt + 1 c. moutarde + filet citron + huile d\'olive. Caesar : jaune cru + anchois mixÃ©s + citron + worcestershire + parmesan + moutarde + huile.' },
       { type: 'heading', text: 'La mayonnaise sans ratage' },
-      { type: 'technique', title: 'Protocole infaillible', text: '1 jaune + 1 c. moutarde de Dijon + sel + poivre dans un bol (stabiliser le bol avec un torchon humide). Même température : jaune et huile à température ambiante. Commencer avec 5-6 gouttes d\'huile en fouettant vigoureusement — l\'émulsion doit se former avant d\'accélérer. Puis filet progressivement croissant. Finir avec quelques gouttes de vinaigre ou citron pour éclaircir.' },
-      { type: 'technique', title: 'Rattraper une mayo tournée', text: 'Dans un bol propre : nouveau jaune d\'œuf + pincée sel. Fouetter. Ajouter la mayo tournée goutte à goutte en fouettant vigoureusement. Le nouveau jaune "raccroche" l\'ancienne émulsion. Cette technique fonctionne à 100 % si la mayo n\'est pas rouillée (> 24h).' },
-      { type: 'technique', title: 'Variantes de la mayo', text: 'Aïoli : mayo + ail pilé (1-4 gousses selon goût) + huile d\'olive (moitié). Rémoulade : mayo + câpres + cornichons + persil + estragon + jus de citron. Tartare : rémoulade + oignon cru très fin. Andalouse : mayo + concentré de tomate + poivron rouge grillé émincé.' },
-      { type: 'heading', text: 'Le beurre blanc — émulsion thermique' },
-      { type: 'technique', title: 'Technique', text: 'Réduire 3 échalotes ciselées + 10 cl vin blanc + 5 cl vinaigre jusqu\'à presque sec. Feu très doux. Incorporer 200 g beurre froid coupé en dés, un à la fois, en fouettant constamment. La caséine du beurre froid crée une émulsion en se fondant dans la réduction. Ne jamais bouillir après l\'ajout du beurre — l\'émulsion se casse. Maintenir à 60-65°C.' },
-      { type: 'warning', text: 'Le beurre blanc ne se réchauffe pas et ne se conserve pas. Il se prépare à la minute et se sert immédiatement. Si il se sépare (huile en surface), un cube de beurre froid et un fouet vigoureux peuvent parfois le rattraper si la réduction est encore intacte.' },
-      { type: 'tip', text: 'Une vinaigrette émulsionnée tient mieux dans un bocal hermétique qu\'un bol. Secouer vigoureusement 30 secondes avant usage. Peut se conserver 1 semaine au réfrigérateur (l\'ail ou l\'échalote fraîche : 3 jours max).' },
-      { type: 'recap', text: 'Émulsifiant = lécithine (jaune), mucilage (moutarde), caséine (beurre). Vinaigrette : sel dans vinaigre d\'abord, ratio 1:3. Mayo : même température, huile goutte à goutte au début. Beurre blanc : réduction + beurre froid en dés, jamais bouillir après.' },
-      { type: 'exercise', text: 'Fais une mayo maison sans robot : jaune + moutarde + 20 cl huile. Si tu réussis sans grumeaux ni ratage, passe au beurre blanc : réduction de vin + beurre froid en dés. C\'est le test ultime de la maîtrise des émulsions.' },
+      { type: 'technique', title: 'Protocole infaillible', text: '1 jaune + 1 c. moutarde de Dijon + sel + poivre dans un bol (stabiliser le bol avec un torchon humide). MÃªme tempÃ©rature : jaune et huile Ã  tempÃ©rature ambiante. Commencer avec 5-6 gouttes d\'huile en fouettant vigoureusement â€” l\'Ã©mulsion doit se former avant d\'accÃ©lÃ©rer. Puis filet progressivement croissant. Finir avec quelques gouttes de vinaigre ou citron pour Ã©claircir.' },
+      { type: 'technique', title: 'Rattraper une mayo tournÃ©e', text: 'Dans un bol propre : nouveau jaune d\'Å“uf + pincÃ©e sel. Fouetter. Ajouter la mayo tournÃ©e goutte Ã  goutte en fouettant vigoureusement. Le nouveau jaune "raccroche" l\'ancienne Ã©mulsion. Cette technique fonctionne Ã  100 % si la mayo n\'est pas rouillÃ©e (> 24h).' },
+      { type: 'technique', title: 'Variantes de la mayo', text: 'AÃ¯oli : mayo + ail pilÃ© (1-4 gousses selon goÃ»t) + huile d\'olive (moitiÃ©). RÃ©moulade : mayo + cÃ¢pres + cornichons + persil + estragon + jus de citron. Tartare : rÃ©moulade + oignon cru trÃ¨s fin. Andalouse : mayo + concentrÃ© de tomate + poivron rouge grillÃ© Ã©mincÃ©.' },
+      { type: 'heading', text: 'Le beurre blanc â€” Ã©mulsion thermique' },
+      { type: 'technique', title: 'Technique', text: 'RÃ©duire 3 Ã©chalotes ciselÃ©es + 10 cl vin blanc + 5 cl vinaigre jusqu\'Ã  presque sec. Feu trÃ¨s doux. Incorporer 200 g beurre froid coupÃ© en dÃ©s, un Ã  la fois, en fouettant constamment. La casÃ©ine du beurre froid crÃ©e une Ã©mulsion en se fondant dans la rÃ©duction. Ne jamais bouillir aprÃ¨s l\'ajout du beurre â€” l\'Ã©mulsion se casse. Maintenir Ã  60-65Â°C.' },
+      { type: 'warning', text: 'Le beurre blanc ne se rÃ©chauffe pas et ne se conserve pas. Il se prÃ©pare Ã  la minute et se sert immÃ©diatement. Si il se sÃ©pare (huile en surface), un cube de beurre froid et un fouet vigoureux peuvent parfois le rattraper si la rÃ©duction est encore intacte.' },
+      { type: 'tip', text: 'Une vinaigrette Ã©mulsionnÃ©e tient mieux dans un bocal hermÃ©tique qu\'un bol. Secouer vigoureusement 30 secondes avant usage. Peut se conserver 1 semaine au rÃ©frigÃ©rateur (l\'ail ou l\'Ã©chalote fraÃ®che : 3 jours max).' },
+      { type: 'recap', text: 'Ã‰mulsifiant = lÃ©cithine (jaune), mucilage (moutarde), casÃ©ine (beurre). Vinaigrette : sel dans vinaigre d\'abord, ratio 1:3. Mayo : mÃªme tempÃ©rature, huile goutte Ã  goutte au dÃ©but. Beurre blanc : rÃ©duction + beurre froid en dÃ©s, jamais bouillir aprÃ¨s.' },
+      { type: 'exercise', text: 'Fais une mayo maison sans robot : jaune + moutarde + 20 cl huile. Si tu rÃ©ussis sans grumeaux ni ratage, passe au beurre blanc : rÃ©duction de vin + beurre froid en dÃ©s. C\'est le test ultime de la maÃ®trise des Ã©mulsions.' },
     ]),
   },
   {
@@ -1408,195 +1522,195 @@ const LESSON_SEED = [
     description: 'Fond blanc, fond brun, fumet : les bases liquides qui transforment chaque sauce.',
     category: 'fire', skill: 'fire', difficulty: 2, icon: 'pot', gemCost: 30, xpReward: 120, order: 11,
     content: JSON.stringify([
-      { type: 'text', text: 'Un fond est un liquide de cuisson concentré, aromatique, réduit. C\'est la différence invisible entre la cuisine amateur et la cuisine de restaurant. Une sauce faite sur fond maison a une profondeur, une intensité et un corps impossibles à obtenir avec de l\'eau ou des cubes industriels. Apprendre à faire des fonds, c\'est apprendre à cuisiner vraiment.' },
+      { type: 'text', text: 'Un fond est un liquide de cuisson concentrÃ©, aromatique, rÃ©duit. C\'est la diffÃ©rence invisible entre la cuisine amateur et la cuisine de restaurant. Une sauce faite sur fond maison a une profondeur, une intensitÃ© et un corps impossibles Ã  obtenir avec de l\'eau ou des cubes industriels. Apprendre Ã  faire des fonds, c\'est apprendre Ã  cuisiner vraiment.' },
       { type: 'heading', text: 'Les types de fonds' },
-      { type: 'technique', title: 'Fond blanc de volaille', text: 'Carcasses + ailettes de poulet (rincées). Eau froide à hauteur. Porter à frémissement sans faire bouillir. Écumer soigneusement pendant 10 minutes (impuretés grises = albumen coagulé). Ajouter mirepoix (carotte, céleri, oignon), bouquet garni, 10 grains de poivre. Frémir 2h à feu doux, jamais bouillir (donne un fond trouble). Filtrer au chinois étamine.' },
-      { type: 'technique', title: 'Fond brun de veau', text: 'Os de veau + parures coupés, rôtis au four 200°C 30 min jusqu\'à coloration brun profond. Dégraissage si nécessaire. Légumes (mirepoix + concentré de tomate) caramélisés dans la plaque. Déglacer avec vin rouge. Couvrir d\'eau froide. Frémir 4-6h en écumant. Filtrer. Réduire jusqu\'à consistance nappante = demi-glace.' },
-      { type: 'technique', title: 'Fumet de poisson', text: 'Arêtes + têtes de poisson blanc (sole, turbot, merlan — pas saumon ni thon trop gras). Suer 5 min dans beurre avec échalotes + fenouil + champignons. Mouiller vin blanc + eau. Jamais plus de 20-25 min de cuisson : au-delà, le fumet devient amer. Filtrer immédiatement.' },
-      { type: 'technique', title: 'Bouillon de légumes', text: 'Oignon brûlé (couper en 2, brûler côté plat dans poêle sèche — donne couleur et goût grillé). Ajouter carotte, céleri branche, poireau, navet, ail, bouquet garni, poivre, tomate. Eau froide. Bouillir 45 min. Filtrer. Plus versatile que l\'eau, moins concentré qu\'un fond animal.' },
+      { type: 'technique', title: 'Fond blanc de volaille', text: 'Carcasses + ailettes de poulet (rincÃ©es). Eau froide Ã  hauteur. Porter Ã  frÃ©missement sans faire bouillir. Ã‰cumer soigneusement pendant 10 minutes (impuretÃ©s grises = albumen coagulÃ©). Ajouter mirepoix (carotte, cÃ©leri, oignon), bouquet garni, 10 grains de poivre. FrÃ©mir 2h Ã  feu doux, jamais bouillir (donne un fond trouble). Filtrer au chinois Ã©tamine.' },
+      { type: 'technique', title: 'Fond brun de veau', text: 'Os de veau + parures coupÃ©s, rÃ´tis au four 200Â°C 30 min jusqu\'Ã  coloration brun profond. DÃ©graissage si nÃ©cessaire. LÃ©gumes (mirepoix + concentrÃ© de tomate) caramÃ©lisÃ©s dans la plaque. DÃ©glacer avec vin rouge. Couvrir d\'eau froide. FrÃ©mir 4-6h en Ã©cumant. Filtrer. RÃ©duire jusqu\'Ã  consistance nappante = demi-glace.' },
+      { type: 'technique', title: 'Fumet de poisson', text: 'ArÃªtes + tÃªtes de poisson blanc (sole, turbot, merlan â€” pas saumon ni thon trop gras). Suer 5 min dans beurre avec Ã©chalotes + fenouil + champignons. Mouiller vin blanc + eau. Jamais plus de 20-25 min de cuisson : au-delÃ , le fumet devient amer. Filtrer immÃ©diatement.' },
+      { type: 'technique', title: 'Bouillon de lÃ©gumes', text: 'Oignon brÃ»lÃ© (couper en 2, brÃ»ler cÃ´tÃ© plat dans poÃªle sÃ¨che â€” donne couleur et goÃ»t grillÃ©). Ajouter carotte, cÃ©leri branche, poireau, navet, ail, bouquet garni, poivre, tomate. Eau froide. Bouillir 45 min. Filtrer. Plus versatile que l\'eau, moins concentrÃ© qu\'un fond animal.' },
       { type: 'heading', text: 'Techniques de concentration' },
-      { type: 'technique', title: 'La réduction', text: 'Faire bouillir le fond à découvert pour évaporer l\'eau. Le volume diminue mais les saveurs et la gélatine se concentrent. Un fond réduit de moitié = deux fois plus intense. Réduit jusqu\'à texture sirupeuse et collante = glace de viande (un cube congelé = base d\'une sauce entière).' },
-      { type: 'technique', title: 'La clarification (consommé)', text: 'Pour obtenir un fond parfaitement transparent : ajouter au fond froid un mélange de viande hachée + blanc d\'œuf + légumes en brunoise (la "clarification"). Chauffer doucement en remuant jusqu\'à formation d\'un "chapeau" de protéines coagulées. Laisser frémir 30 min sans toucher. Filtrer au torchon humide. Résultat : bouillon cristallin.' },
-      { type: 'tip', text: 'Les fonds se congèlent parfaitement. Réduire jusqu\'à concentration intense, verser dans bacs à glaçons. Un "cube de fond" sort du congélateur et suffit à monter une sauce en 5 minutes. Garder toujours du fond congelé : c\'est la ressource la plus précieuse d\'une cuisine.' },
-      { type: 'warning', text: 'Ne jamais faire bouillir à gros bouillons un fond en cours d\'extraction : les protéines en suspension rendent le fond trouble. Un frémissement doux (quelques bulles en surface) est la bonne température. Patience.' },
-      { type: 'technique', title: 'Utilisation des fonds', text: 'Fond blanc → velouté, sauce crème, risotto, pocher la volaille. Fond brun → sauce bordelaise, châteaubriand, braiser la viande, jus de rôti. Fumet → sauce vin blanc, beurre blanc, sauce américaine. Bouillon légumes → risotto végétarien, soupes, cuire les légumes.' },
-      { type: 'recap', text: 'Fond blanc : carcasses + eau froide + frémissement 2h. Fond brun : os rôtis + légumes caramélisés + frémissement 4-6h. Fumet : arêtes + vin blanc, 20 min max. Bouillon légumes : oignon brûlé + légumes 45 min. Réduire = concentrer. Congeler les fonds en cubes.' },
-      { type: 'exercise', text: 'La prochaine fois que tu achètes un poulet entier, garde la carcasse après désossage. Fais un fond blanc : eau froide, carcasse, oignon brûlé, carotte, céleri, bouquet garni. 2h de frémissement. Filtre et utilise ce fond pour cuire un risotto — la différence avec l\'eau est stupéfiante.' },
+      { type: 'technique', title: 'La rÃ©duction', text: 'Faire bouillir le fond Ã  dÃ©couvert pour Ã©vaporer l\'eau. Le volume diminue mais les saveurs et la gÃ©latine se concentrent. Un fond rÃ©duit de moitiÃ© = deux fois plus intense. RÃ©duit jusqu\'Ã  texture sirupeuse et collante = glace de viande (un cube congelÃ© = base d\'une sauce entiÃ¨re).' },
+      { type: 'technique', title: 'La clarification (consommÃ©)', text: 'Pour obtenir un fond parfaitement transparent : ajouter au fond froid un mÃ©lange de viande hachÃ©e + blanc d\'Å“uf + lÃ©gumes en brunoise (la "clarification"). Chauffer doucement en remuant jusqu\'Ã  formation d\'un "chapeau" de protÃ©ines coagulÃ©es. Laisser frÃ©mir 30 min sans toucher. Filtrer au torchon humide. RÃ©sultat : bouillon cristallin.' },
+      { type: 'tip', text: 'Les fonds se congÃ¨lent parfaitement. RÃ©duire jusqu\'Ã  concentration intense, verser dans bacs Ã  glaÃ§ons. Un "cube de fond" sort du congÃ©lateur et suffit Ã  monter une sauce en 5 minutes. Garder toujours du fond congelÃ© : c\'est la ressource la plus prÃ©cieuse d\'une cuisine.' },
+      { type: 'warning', text: 'Ne jamais faire bouillir Ã  gros bouillons un fond en cours d\'extraction : les protÃ©ines en suspension rendent le fond trouble. Un frÃ©missement doux (quelques bulles en surface) est la bonne tempÃ©rature. Patience.' },
+      { type: 'technique', title: 'Utilisation des fonds', text: 'Fond blanc â†’ veloutÃ©, sauce crÃ¨me, risotto, pocher la volaille. Fond brun â†’ sauce bordelaise, chÃ¢teaubriand, braiser la viande, jus de rÃ´ti. Fumet â†’ sauce vin blanc, beurre blanc, sauce amÃ©ricaine. Bouillon lÃ©gumes â†’ risotto vÃ©gÃ©tarien, soupes, cuire les lÃ©gumes.' },
+      { type: 'recap', text: 'Fond blanc : carcasses + eau froide + frÃ©missement 2h. Fond brun : os rÃ´tis + lÃ©gumes caramÃ©lisÃ©s + frÃ©missement 4-6h. Fumet : arÃªtes + vin blanc, 20 min max. Bouillon lÃ©gumes : oignon brÃ»lÃ© + lÃ©gumes 45 min. RÃ©duire = concentrer. Congeler les fonds en cubes.' },
+      { type: 'exercise', text: 'La prochaine fois que tu achÃ¨tes un poulet entier, garde la carcasse aprÃ¨s dÃ©sossage. Fais un fond blanc : eau froide, carcasse, oignon brÃ»lÃ©, carotte, cÃ©leri, bouquet garni. 2h de frÃ©missement. Filtre et utilise ce fond pour cuire un risotto â€” la diffÃ©rence avec l\'eau est stupÃ©fiante.' },
     ]),
   },
   {
     slug: 'cuisson-poisson',
-    title: 'Maîtriser la cuisson du poisson',
-    description: 'Peau croustillante, chair nacrée : les 6 techniques pour ne plus jamais rater un poisson.',
+    title: 'MaÃ®triser la cuisson du poisson',
+    description: 'Peau croustillante, chair nacrÃ©e : les 6 techniques pour ne plus jamais rater un poisson.',
     category: 'fire', skill: 'fire', difficulty: 2, icon: 'fish', gemCost: 30, xpReward: 120, order: 12,
     content: JSON.stringify([
-      { type: 'text', text: 'Le poisson est l\'ingrédient le plus délicat à cuire. Sa fenêtre de cuisson parfaite est de quelques degrés et quelques secondes. Trop cuit, les protéines se désagrègent et le poisson sèche. Mi-cuit ou juste nacré, c\'est une expérience de texture incomparable. Maîtriser le poisson, c\'est maîtriser la précision.' },
+      { type: 'text', text: 'Le poisson est l\'ingrÃ©dient le plus dÃ©licat Ã  cuire. Sa fenÃªtre de cuisson parfaite est de quelques degrÃ©s et quelques secondes. Trop cuit, les protÃ©ines se dÃ©sagrÃ¨gent et le poisson sÃ¨che. Mi-cuit ou juste nacrÃ©, c\'est une expÃ©rience de texture incomparable. MaÃ®triser le poisson, c\'est maÃ®triser la prÃ©cision.' },
       { type: 'heading', text: 'Comprendre le poisson' },
-      { type: 'technique', title: 'Structure des protéines', text: 'Les fibres musculaires du poisson sont courtes et coagulent à basse température : blanc de poisson à 45-55°C (contre 65°C pour le poulet). Conséquence : quelques degrés de trop = protéines qui se désagrègent, texture cotonneuse. La précision est donc plus critique que pour n\'importe quelle autre protéine.' },
-      { type: 'technique', title: 'Fraîcheur : critères absolus', text: 'Yeux brillants et bombés (jamais creux ou opaques). Ouïes rouge vif (jamais marron gris). Chair ferme qui reprend sa forme quand on appuie. Odeur : mer fraîche, iode — jamais ammoniac ou poisson fort. Un poisson frais ne sent pas le poisson.' },
+      { type: 'technique', title: 'Structure des protÃ©ines', text: 'Les fibres musculaires du poisson sont courtes et coagulent Ã  basse tempÃ©rature : blanc de poisson Ã  45-55Â°C (contre 65Â°C pour le poulet). ConsÃ©quence : quelques degrÃ©s de trop = protÃ©ines qui se dÃ©sagrÃ¨gent, texture cotonneuse. La prÃ©cision est donc plus critique que pour n\'importe quelle autre protÃ©ine.' },
+      { type: 'technique', title: 'FraÃ®cheur : critÃ¨res absolus', text: 'Yeux brillants et bombÃ©s (jamais creux ou opaques). OuÃ¯es rouge vif (jamais marron gris). Chair ferme qui reprend sa forme quand on appuie. Odeur : mer fraÃ®che, iode â€” jamais ammoniac ou poisson fort. Un poisson frais ne sent pas le poisson.' },
       { type: 'heading', text: 'Les 6 techniques' },
-      { type: 'technique', title: '1. Poêlée côté peau (technique principale)', text: 'Inciser légèrement la peau (évite la rétraction). Sécher avec papier absorbant. Huile à haute température de fumée (arachide), poêle chaude. Déposer côté peau, appuyer doucement 30 secondes avec spatule pour maintenir contact. Cuire 70-80 % du temps côté peau (peau dorée = croustillante). Retourner 60 secondes. Finir avec noix de beurre + thym.' },
-      { type: 'technique', title: '2. Vapeur', text: 'Cuit sans matière grasse, préserve les arômes délicats. Idéal pour poissons maigres (sole, cabillaud, bar). Temps : 5-8 min selon épaisseur. Test : appuyer doucement — la chair doit se séparer en feuillets sans résistance. Servir immédiatement : la chair continue à cuire après sortie du panier.' },
-      { type: 'technique', title: '3. Papillote', text: 'Papier cuisson ou alu. Poisson + garniture + liquide (vin blanc, fumet, citron). Fermer hermétiquement. Four 200°C, 10-15 min selon épaisseur. La vapeur interne cuit et parfume. Ouvrir à table : le nuage de vapeur fait partie de l\'expérience. Le poisson ne sèche jamais en papillote.' },
-      { type: 'technique', title: '4. Four basse température', text: 'Four 80°C. Poisson sur plaque légèrement huilée. 15-25 min selon épaisseur (calculer 10 min/cm). Résultat : chair d\'une onctuosité exceptionnelle, jamais sèche, nacrée à cœur. Idéal pour les pièces entières et les filets épais (saumon, cabillaud).' },
-      { type: 'technique', title: '5. En croûte de sel', text: 'Gros poisson entier (bar, daurade). Couvrir complètement d\'un mélange sel gros + blanc d\'œuf + herbes. Four 200°C, 20-30 min. La croûte de sel cuit à la vapeur interne — le poisson ne sale pas mais reste incroyablement juteux. Casser la croûte à table. Technique spectaculaire, résultat parfait.' },
-      { type: 'technique', title: '6. Mi-cuit / gravlax', text: 'Saumon mi-cuit : four 55°C 25-30 min, chair nacrée translucide à cœur. Gravlax : filet de saumon cru mariné 24-48h sous sel + sucre + aneth + poivre concassé. Le sel "cuit" le poisson par déshydratation osmotique. Trancher très fin, servir avec crème citronnée.' },
-      { type: 'heading', text: 'Températures et temps de cuisson' },
-      { type: 'technique', title: 'Repères pratiques', text: 'Filet de 2 cm : poêlée 3-4 min côté peau + 1 min côté chair. Filet de 3 cm : papillote 15 min ou four 80°C 20 min. Poisson entier 500g : four 200°C 15-20 min, ou croûte de sel 25 min. Test universel : appuyer doucement avec le doigt — se sépare facilement en feuillets = cuit. Résistance = pas encore prêt.' },
-      { type: 'warning', text: 'Ne jamais rincer un filet de poisson sous l\'eau — ça détrempe la chair. Sécher au papier absorbant. Ne jamais cuire un filet sorti du réfrigérateur directement — 5-10 min à température ambiante d\'abord.' },
-      { type: 'tip', text: 'Pour une peau parfaitement croustillante : poser le filet côté peau sur une planche 5 minutes à l\'air libre avant cuisson. La surface sèche forme une "croûte" qui croustille mieux.' },
-      { type: 'recap', text: 'Fraîcheur = yeux brillants + odeur iodée. Poêlée côté peau = 70 % du temps côté peau. Vapeur = sans matière grasse, délicate. Papillote = jamais sec. Four 80°C = onctuosité maximale. Mi-cuit = nacré à cœur. Test universel : feuillets qui se séparent facilement.' },
-      { type: 'exercise', text: 'Prends 2 filets de saumon identiques. Cuis le premier à la poêle côté peau (3 min/1 min). Cuis le second au four à 80°C pendant 20 min. Compare la texture, la jutosité, la couleur. C\'est la même matière première — deux résultats complètement différents selon la technique.' },
+      { type: 'technique', title: '1. PoÃªlÃ©e cÃ´tÃ© peau (technique principale)', text: 'Inciser lÃ©gÃ¨rement la peau (Ã©vite la rÃ©traction). SÃ©cher avec papier absorbant. Huile Ã  haute tempÃ©rature de fumÃ©e (arachide), poÃªle chaude. DÃ©poser cÃ´tÃ© peau, appuyer doucement 30 secondes avec spatule pour maintenir contact. Cuire 70-80 % du temps cÃ´tÃ© peau (peau dorÃ©e = croustillante). Retourner 60 secondes. Finir avec noix de beurre + thym.' },
+      { type: 'technique', title: '2. Vapeur', text: 'Cuit sans matiÃ¨re grasse, prÃ©serve les arÃ´mes dÃ©licats. IdÃ©al pour poissons maigres (sole, cabillaud, bar). Temps : 5-8 min selon Ã©paisseur. Test : appuyer doucement â€” la chair doit se sÃ©parer en feuillets sans rÃ©sistance. Servir immÃ©diatement : la chair continue Ã  cuire aprÃ¨s sortie du panier.' },
+      { type: 'technique', title: '3. Papillote', text: 'Papier cuisson ou alu. Poisson + garniture + liquide (vin blanc, fumet, citron). Fermer hermÃ©tiquement. Four 200Â°C, 10-15 min selon Ã©paisseur. La vapeur interne cuit et parfume. Ouvrir Ã  table : le nuage de vapeur fait partie de l\'expÃ©rience. Le poisson ne sÃ¨che jamais en papillote.' },
+      { type: 'technique', title: '4. Four basse tempÃ©rature', text: 'Four 80Â°C. Poisson sur plaque lÃ©gÃ¨rement huilÃ©e. 15-25 min selon Ã©paisseur (calculer 10 min/cm). RÃ©sultat : chair d\'une onctuositÃ© exceptionnelle, jamais sÃ¨che, nacrÃ©e Ã  cÅ“ur. IdÃ©al pour les piÃ¨ces entiÃ¨res et les filets Ã©pais (saumon, cabillaud).' },
+      { type: 'technique', title: '5. En croÃ»te de sel', text: 'Gros poisson entier (bar, daurade). Couvrir complÃ¨tement d\'un mÃ©lange sel gros + blanc d\'Å“uf + herbes. Four 200Â°C, 20-30 min. La croÃ»te de sel cuit Ã  la vapeur interne â€” le poisson ne sale pas mais reste incroyablement juteux. Casser la croÃ»te Ã  table. Technique spectaculaire, rÃ©sultat parfait.' },
+      { type: 'technique', title: '6. Mi-cuit / gravlax', text: 'Saumon mi-cuit : four 55Â°C 25-30 min, chair nacrÃ©e translucide Ã  cÅ“ur. Gravlax : filet de saumon cru marinÃ© 24-48h sous sel + sucre + aneth + poivre concassÃ©. Le sel "cuit" le poisson par dÃ©shydratation osmotique. Trancher trÃ¨s fin, servir avec crÃ¨me citronnÃ©e.' },
+      { type: 'heading', text: 'TempÃ©ratures et temps de cuisson' },
+      { type: 'technique', title: 'RepÃ¨res pratiques', text: 'Filet de 2 cm : poÃªlÃ©e 3-4 min cÃ´tÃ© peau + 1 min cÃ´tÃ© chair. Filet de 3 cm : papillote 15 min ou four 80Â°C 20 min. Poisson entier 500g : four 200Â°C 15-20 min, ou croÃ»te de sel 25 min. Test universel : appuyer doucement avec le doigt â€” se sÃ©pare facilement en feuillets = cuit. RÃ©sistance = pas encore prÃªt.' },
+      { type: 'warning', text: 'Ne jamais rincer un filet de poisson sous l\'eau â€” Ã§a dÃ©trempe la chair. SÃ©cher au papier absorbant. Ne jamais cuire un filet sorti du rÃ©frigÃ©rateur directement â€” 5-10 min Ã  tempÃ©rature ambiante d\'abord.' },
+      { type: 'tip', text: 'Pour une peau parfaitement croustillante : poser le filet cÃ´tÃ© peau sur une planche 5 minutes Ã  l\'air libre avant cuisson. La surface sÃ¨che forme une "croÃ»te" qui croustille mieux.' },
+      { type: 'recap', text: 'FraÃ®cheur = yeux brillants + odeur iodÃ©e. PoÃªlÃ©e cÃ´tÃ© peau = 70 % du temps cÃ´tÃ© peau. Vapeur = sans matiÃ¨re grasse, dÃ©licate. Papillote = jamais sec. Four 80Â°C = onctuositÃ© maximale. Mi-cuit = nacrÃ© Ã  cÅ“ur. Test universel : feuillets qui se sÃ©parent facilement.' },
+      { type: 'exercise', text: 'Prends 2 filets de saumon identiques. Cuis le premier Ã  la poÃªle cÃ´tÃ© peau (3 min/1 min). Cuis le second au four Ã  80Â°C pendant 20 min. Compare la texture, la jutositÃ©, la couleur. C\'est la mÃªme matiÃ¨re premiÃ¨re â€” deux rÃ©sultats complÃ¨tement diffÃ©rents selon la technique.' },
     ]),
   },
   {
     slug: 'liaisons-epaississants',
-    title: 'Liaisons & épaississants',
-    description: 'Roux, liaison à l\'œuf, agar-agar, fécule : épaissir avec précision selon le résultat voulu.',
+    title: 'Liaisons & Ã©paississants',
+    description: 'Roux, liaison Ã  l\'Å“uf, agar-agar, fÃ©cule : Ã©paissir avec prÃ©cision selon le rÃ©sultat voulu.',
     category: 'seasoning', skill: 'seasoning', difficulty: 3, icon: 'beaker', gemCost: 50, xpReward: 180, order: 13,
     content: JSON.stringify([
-      { type: 'text', text: 'Épaissir une sauce ou un liquide, c\'est transformer sa texture pour qu\'il nappe, colle, gélifie ou crème. Chaque agent épaississant a ses propriétés physico-chimiques propres : températures d\'activation, résistance à l\'acidité, transparence, texture finale. Choisir le bon outil change tout.' },
-      { type: 'heading', text: 'Les liaisons classiques à la chaleur' },
-      { type: 'technique', title: 'Le roux', text: 'Beurre fondu + farine (ratio 1:1 en poids). Cuire ensemble 2 min (roux blanc) à 10-15 min (roux brun) selon l\'utilisation. La chaleur inactive les enzymes de la farine qui donneraient un goût farineux. Verser le liquide chaud sur le roux chaud (ou froid sur froid) en fouettant. Épaississement à l\'ébullition, stabilisé à 95-100°C. 1 roux blanc = béchamel, velouté. 1 roux brun = gumbo, sauce Cajun.' },
-      { type: 'technique', title: 'La fécule de maïs (Maïzena)', text: 'Délayer dans de l\'eau froide (jamais directement dans le chaud — grumeaux immédiats). Ratio : 1 c. à s. fécule pour 200 ml liquide. Verser en fouettant dans le liquide chaud. Épaissit à 80°C, devient transparent (différence avec roux qui reste opaque). Ne pas bouillir après épaississement — se liquéfie en excès de chaleur. Idéale pour sauces asiatiques, glaçages de tarte aux fruits.' },
-      { type: 'technique', title: 'L\'arrow-root', text: 'Similaire à la fécule mais épaissit à plus basse température (70°C) et reste parfaitement transparent. Ne supporte pas l\'acidité ni la congélation. Idéal pour les sauces délicates, les coulis de fruits, les sauces légères qui doivent rester brillantes.' },
-      { type: 'heading', text: 'Les liaisons à froid ou par émulsion' },
-      { type: 'technique', title: 'La liaison à l\'œuf (liaison à blanc ou à jaune)', text: 'Jaune d\'œuf fouetté + crème. Tempérer : verser une louche de sauce chaude sur le mélange froid en fouettant (évite la coagulation), puis reverser dans la sauce. Chauffer à 82-84°C sans jamais bouillir. La sauce nappe la cuillère, coat en velours. Technique : crème anglaise, sauce Allemande, potages veloutés. Jamais bouillir = œufs brouillés dans la sauce.' },
-      { type: 'technique', title: 'Le beurre manié', text: 'Alternative rapide au roux. Beurre mou + farine (50/50) malaxés ensemble à froid. Former des petites noix. Les incorporer dans une sauce bouillante en fouettant — ils fondent et épaississent instantanément. Épaississement rapide de correction en fin de cuisson. Pas pour les grandes quantités.' },
-      { type: 'technique', title: 'La réduction (liaison naturelle)', text: 'Évaporer l\'eau par ébullition. La concentration naturelle des sucres, protéines et collagène épaissit le liquide. Aucun ingrédient ajouté. Réduction de moitié = texture veloutée. Réduction aux 3/4 = sirupeux. Résultat le plus pur : toute la saveur concentrée, aucun épaississant détectable.' },
-      { type: 'heading', text: 'Les gélifiants modernes' },
-      { type: 'technique', title: 'Agar-agar', text: 'Gélifiant végétal (algues rouges). 2 g pour 500 ml liquide = gel ferme. Dissoudre dans le liquide froid, puis porter à ébullition 2 min en fouettant. Gélifie en refroidissant à 40°C, tient jusqu\'à 80°C (contrairement à la gélatine qui fond à 25°C). Idéal pour terrines chaudes, gels de présentation, sauce gélifiée.' },
-      { type: 'technique', title: 'Gélatine (feuilles)', text: '1 feuille (2 g) pour 100 ml liquide = gel souple. Tremper dans eau froide 5 min, essorer, fondre dans liquide chaud (pas bouillant — dénaturé). Gélifie sous 4°C. Fond à 25-30°C (fondant en bouche). Idéal : panna cotta, bavarois, aspic, entremets. Pas pour les végétariens (collagène porcin ou bovin).' },
-      { type: 'technique', title: 'La xanthane (pour les curieux)', text: '0,2-0,4 g pour 100 ml = épaississement sans cuisson. Donner du corps à un jus, épaissir une vinaigrette légère, stabiliser une émulsion. Disperser dans de l\'huile avant d\'ajouter dans le liquide (évite les grumeaux). Cuisine moléculaire accessible — pas indispensable mais utile en technique avancée.' },
-      { type: 'warning', text: 'La fécule ne supporte pas d\'être rechauffée plusieurs fois — elle se liquéfie. Pour les sauces à réchauffer : préférer un roux (plus stable). La gélatine ne convient pas aux fruits acides frais (ananas, kiwi, papaye) qui contiennent des enzymes protéolytiques qui dégradent la gélatine — utiliser l\'agar-agar.' },
-      { type: 'recap', text: 'Roux : stable, opaque, cuisson longue. Fécule : transparent, rapide, délicat. Liaison jaune+crème : velours, jamais bouillir. Réduction : le plus pur, aucun ajout. Agar-agar : végétal, tient à chaud. Gélatine : fondant en bouche, fragile à chaleur.' },
-      { type: 'exercise', text: 'Fais un potage de légumes simple. Divise en 3 portions. Épaissir la 1ère avec un peu de roux (1 c. beurre + 1 c. farine fondue ensemble, incorporée). La 2ème avec fécule de maïs délayée. La 3ème par réduction de moitié. Compare les trois textures et les trois saveurs — les différences sont saisissantes.' },
+      { type: 'text', text: 'Ã‰paissir une sauce ou un liquide, c\'est transformer sa texture pour qu\'il nappe, colle, gÃ©lifie ou crÃ¨me. Chaque agent Ã©paississant a ses propriÃ©tÃ©s physico-chimiques propres : tempÃ©ratures d\'activation, rÃ©sistance Ã  l\'aciditÃ©, transparence, texture finale. Choisir le bon outil change tout.' },
+      { type: 'heading', text: 'Les liaisons classiques Ã  la chaleur' },
+      { type: 'technique', title: 'Le roux', text: 'Beurre fondu + farine (ratio 1:1 en poids). Cuire ensemble 2 min (roux blanc) Ã  10-15 min (roux brun) selon l\'utilisation. La chaleur inactive les enzymes de la farine qui donneraient un goÃ»t farineux. Verser le liquide chaud sur le roux chaud (ou froid sur froid) en fouettant. Ã‰paississement Ã  l\'Ã©bullition, stabilisÃ© Ã  95-100Â°C. 1 roux blanc = bÃ©chamel, veloutÃ©. 1 roux brun = gumbo, sauce Cajun.' },
+      { type: 'technique', title: 'La fÃ©cule de maÃ¯s (MaÃ¯zena)', text: 'DÃ©layer dans de l\'eau froide (jamais directement dans le chaud â€” grumeaux immÃ©diats). Ratio : 1 c. Ã  s. fÃ©cule pour 200 ml liquide. Verser en fouettant dans le liquide chaud. Ã‰paissit Ã  80Â°C, devient transparent (diffÃ©rence avec roux qui reste opaque). Ne pas bouillir aprÃ¨s Ã©paississement â€” se liquÃ©fie en excÃ¨s de chaleur. IdÃ©ale pour sauces asiatiques, glaÃ§ages de tarte aux fruits.' },
+      { type: 'technique', title: 'L\'arrow-root', text: 'Similaire Ã  la fÃ©cule mais Ã©paissit Ã  plus basse tempÃ©rature (70Â°C) et reste parfaitement transparent. Ne supporte pas l\'aciditÃ© ni la congÃ©lation. IdÃ©al pour les sauces dÃ©licates, les coulis de fruits, les sauces lÃ©gÃ¨res qui doivent rester brillantes.' },
+      { type: 'heading', text: 'Les liaisons Ã  froid ou par Ã©mulsion' },
+      { type: 'technique', title: 'La liaison Ã  l\'Å“uf (liaison Ã  blanc ou Ã  jaune)', text: 'Jaune d\'Å“uf fouettÃ© + crÃ¨me. TempÃ©rer : verser une louche de sauce chaude sur le mÃ©lange froid en fouettant (Ã©vite la coagulation), puis reverser dans la sauce. Chauffer Ã  82-84Â°C sans jamais bouillir. La sauce nappe la cuillÃ¨re, coat en velours. Technique : crÃ¨me anglaise, sauce Allemande, potages veloutÃ©s. Jamais bouillir = Å“ufs brouillÃ©s dans la sauce.' },
+      { type: 'technique', title: 'Le beurre maniÃ©', text: 'Alternative rapide au roux. Beurre mou + farine (50/50) malaxÃ©s ensemble Ã  froid. Former des petites noix. Les incorporer dans une sauce bouillante en fouettant â€” ils fondent et Ã©paississent instantanÃ©ment. Ã‰paississement rapide de correction en fin de cuisson. Pas pour les grandes quantitÃ©s.' },
+      { type: 'technique', title: 'La rÃ©duction (liaison naturelle)', text: 'Ã‰vaporer l\'eau par Ã©bullition. La concentration naturelle des sucres, protÃ©ines et collagÃ¨ne Ã©paissit le liquide. Aucun ingrÃ©dient ajoutÃ©. RÃ©duction de moitiÃ© = texture veloutÃ©e. RÃ©duction aux 3/4 = sirupeux. RÃ©sultat le plus pur : toute la saveur concentrÃ©e, aucun Ã©paississant dÃ©tectable.' },
+      { type: 'heading', text: 'Les gÃ©lifiants modernes' },
+      { type: 'technique', title: 'Agar-agar', text: 'GÃ©lifiant vÃ©gÃ©tal (algues rouges). 2 g pour 500 ml liquide = gel ferme. Dissoudre dans le liquide froid, puis porter Ã  Ã©bullition 2 min en fouettant. GÃ©lifie en refroidissant Ã  40Â°C, tient jusqu\'Ã  80Â°C (contrairement Ã  la gÃ©latine qui fond Ã  25Â°C). IdÃ©al pour terrines chaudes, gels de prÃ©sentation, sauce gÃ©lifiÃ©e.' },
+      { type: 'technique', title: 'GÃ©latine (feuilles)', text: '1 feuille (2 g) pour 100 ml liquide = gel souple. Tremper dans eau froide 5 min, essorer, fondre dans liquide chaud (pas bouillant â€” dÃ©naturÃ©). GÃ©lifie sous 4Â°C. Fond Ã  25-30Â°C (fondant en bouche). IdÃ©al : panna cotta, bavarois, aspic, entremets. Pas pour les vÃ©gÃ©tariens (collagÃ¨ne porcin ou bovin).' },
+      { type: 'technique', title: 'La xanthane (pour les curieux)', text: '0,2-0,4 g pour 100 ml = Ã©paississement sans cuisson. Donner du corps Ã  un jus, Ã©paissir une vinaigrette lÃ©gÃ¨re, stabiliser une Ã©mulsion. Disperser dans de l\'huile avant d\'ajouter dans le liquide (Ã©vite les grumeaux). Cuisine molÃ©culaire accessible â€” pas indispensable mais utile en technique avancÃ©e.' },
+      { type: 'warning', text: 'La fÃ©cule ne supporte pas d\'Ãªtre rechauffÃ©e plusieurs fois â€” elle se liquÃ©fie. Pour les sauces Ã  rÃ©chauffer : prÃ©fÃ©rer un roux (plus stable). La gÃ©latine ne convient pas aux fruits acides frais (ananas, kiwi, papaye) qui contiennent des enzymes protÃ©olytiques qui dÃ©gradent la gÃ©latine â€” utiliser l\'agar-agar.' },
+      { type: 'recap', text: 'Roux : stable, opaque, cuisson longue. FÃ©cule : transparent, rapide, dÃ©licat. Liaison jaune+crÃ¨me : velours, jamais bouillir. RÃ©duction : le plus pur, aucun ajout. Agar-agar : vÃ©gÃ©tal, tient Ã  chaud. GÃ©latine : fondant en bouche, fragile Ã  chaleur.' },
+      { type: 'exercise', text: 'Fais un potage de lÃ©gumes simple. Divise en 3 portions. Ã‰paissir la 1Ã¨re avec un peu de roux (1 c. beurre + 1 c. farine fondue ensemble, incorporÃ©e). La 2Ã¨me avec fÃ©cule de maÃ¯s dÃ©layÃ©e. La 3Ã¨me par rÃ©duction de moitiÃ©. Compare les trois textures et les trois saveurs â€” les diffÃ©rences sont saisissantes.' },
     ]),
   },
   {
     slug: 'patisserie-feuilletee',
-    title: 'La pâte feuilletée',
-    description: 'Détrempe, beurrage, tourage : la reine des pâtes démystifiée couche par couche.',
+    title: 'La pÃ¢te feuilletÃ©e',
+    description: 'DÃ©trempe, beurrage, tourage : la reine des pÃ¢tes dÃ©mystifiÃ©e couche par couche.',
     category: 'baking', skill: 'baking', difficulty: 3, icon: 'layers', gemCost: 50, xpReward: 180, order: 14,
     content: JSON.stringify([
-      { type: 'text', text: 'La pâte feuilletée est un chef-d\'œuvre de physique culinaire : 729 couches de beurre et de pâte alternées, créées par 6 tours de pliage. À la cuisson, l\'eau contenue dans le beurre se vaporise instantanément et soulève chaque couche. Le résultat : un feuilletage d\'une légèreté et d\'un croustillant impossibles à imiter.' },
+      { type: 'text', text: 'La pÃ¢te feuilletÃ©e est un chef-d\'Å“uvre de physique culinaire : 729 couches de beurre et de pÃ¢te alternÃ©es, crÃ©Ã©es par 6 tours de pliage. Ã€ la cuisson, l\'eau contenue dans le beurre se vaporise instantanÃ©ment et soulÃ¨ve chaque couche. Le rÃ©sultat : un feuilletage d\'une lÃ©gÃ¨retÃ© et d\'un croustillant impossibles Ã  imiter.' },
       { type: 'heading', text: 'Le principe du tourage' },
-      { type: 'technique', title: 'Pourquoi feuilleter', text: 'Alterner couches de pâte (détrempe) et couches de beurre par pliages successifs. Chaque "tour" double le nombre de couches. 6 tours simples = 2⁶ = 64 couches de beurre = 729 feuillets au total. Le froid maintient la séparation : si le beurre fond, il s\'incorpore à la pâte et il n\'y a plus de feuilletage.' },
-      { type: 'heading', text: 'La détrempe — étape 1' },
-      { type: 'technique', title: 'Recette de base', text: '500 g farine T55 + 10 g sel + 250 ml eau froide + 50 g beurre fondu. Mélanger sans pétrir (développer le gluten au minimum). Inciser en croix. Film, 30 min au réfrigérateur. La détrempe doit être souple mais pas élastique — trop de gluten résiste au tourage.' },
-      { type: 'heading', text: 'Le beurrage — étape 2' },
-      { type: 'technique', title: 'Le beurre de tourage', text: 'Beurre de tourage (84% MG, spécial tourage) ou beurre AOP de qualité. 250 g beurre froid battu entre 2 feuilles sulfurisée jusqu\'à former un carré de 15×15 cm, 1 cm d\'épaisseur. Température idéale du beurre : 14-16°C — aussi froid que la détrempe.' },
-      { type: 'technique', title: 'Emprisonnement du beurre', text: 'Étaler la détrempe en carré de 25×25 cm. Poser le beurre au centre en diagonale. Replier les 4 coins de la détrempe sur le beurre comme une enveloppe. Souder les bords en appuyant. Le beurre est emprisonné. Étaler en rectangle 20×60 cm.' },
-      { type: 'heading', text: 'Les tours — étape 3' },
-      { type: 'technique', title: 'Le tour simple (ou double)', text: 'Tour simple : plier en 3 (comme une lettre). Tourner d\'un quart de tour. Étaler. Répéter. Faire 6 tours simples total avec 2 repos de 30 min au froid entre chaque série de 2 tours. Tour double : plier les 2 extrémités vers le centre puis plier en 2 (4 épaisseurs). 3 tours doubles = équivalent 6 simples.' },
-      { type: 'technique', title: 'Les erreurs à éviter', text: '1. Beurre trop froid = casse les couches. 2. Beurre trop chaud = s\'incorpore à la pâte. 3. Trop travailler la détrempe = trop de gluten = rétraction. 4. Oublier les temps de repos au froid = le beurre fond. 5. Étaler trop fort = les couches s\'écrasent et fusionnent.' },
+      { type: 'technique', title: 'Pourquoi feuilleter', text: 'Alterner couches de pÃ¢te (dÃ©trempe) et couches de beurre par pliages successifs. Chaque "tour" double le nombre de couches. 6 tours simples = 2â¶ = 64 couches de beurre = 729 feuillets au total. Le froid maintient la sÃ©paration : si le beurre fond, il s\'incorpore Ã  la pÃ¢te et il n\'y a plus de feuilletage.' },
+      { type: 'heading', text: 'La dÃ©trempe â€” Ã©tape 1' },
+      { type: 'technique', title: 'Recette de base', text: '500 g farine T55 + 10 g sel + 250 ml eau froide + 50 g beurre fondu. MÃ©langer sans pÃ©trir (dÃ©velopper le gluten au minimum). Inciser en croix. Film, 30 min au rÃ©frigÃ©rateur. La dÃ©trempe doit Ãªtre souple mais pas Ã©lastique â€” trop de gluten rÃ©siste au tourage.' },
+      { type: 'heading', text: 'Le beurrage â€” Ã©tape 2' },
+      { type: 'technique', title: 'Le beurre de tourage', text: 'Beurre de tourage (84% MG, spÃ©cial tourage) ou beurre AOP de qualitÃ©. 250 g beurre froid battu entre 2 feuilles sulfurisÃ©e jusqu\'Ã  former un carrÃ© de 15Ã—15 cm, 1 cm d\'Ã©paisseur. TempÃ©rature idÃ©ale du beurre : 14-16Â°C â€” aussi froid que la dÃ©trempe.' },
+      { type: 'technique', title: 'Emprisonnement du beurre', text: 'Ã‰taler la dÃ©trempe en carrÃ© de 25Ã—25 cm. Poser le beurre au centre en diagonale. Replier les 4 coins de la dÃ©trempe sur le beurre comme une enveloppe. Souder les bords en appuyant. Le beurre est emprisonnÃ©. Ã‰taler en rectangle 20Ã—60 cm.' },
+      { type: 'heading', text: 'Les tours â€” Ã©tape 3' },
+      { type: 'technique', title: 'Le tour simple (ou double)', text: 'Tour simple : plier en 3 (comme une lettre). Tourner d\'un quart de tour. Ã‰taler. RÃ©pÃ©ter. Faire 6 tours simples total avec 2 repos de 30 min au froid entre chaque sÃ©rie de 2 tours. Tour double : plier les 2 extrÃ©mitÃ©s vers le centre puis plier en 2 (4 Ã©paisseurs). 3 tours doubles = Ã©quivalent 6 simples.' },
+      { type: 'technique', title: 'Les erreurs Ã  Ã©viter', text: '1. Beurre trop froid = casse les couches. 2. Beurre trop chaud = s\'incorpore Ã  la pÃ¢te. 3. Trop travailler la dÃ©trempe = trop de gluten = rÃ©traction. 4. Oublier les temps de repos au froid = le beurre fond. 5. Ã‰taler trop fort = les couches s\'Ã©crasent et fusionnent.' },
       { type: 'heading', text: 'Cuisson et utilisations' },
-      { type: 'technique', title: 'Four très chaud', text: 'Four préchauffé 200-220°C. La chaleur intense vaporise l\'eau du beurre instantanément → chaque couche se soulève. À 180°C ou moins, la vapeur se produit trop lentement et le feuilletage est compact. Toujours dorer à l\'œuf (jamais sur les côtés — ça colle les couches).' },
-      { type: 'technique', title: 'Utilisations classiques', text: 'Millefeuille : 3 couches de pâte + crème pâtissière. Vol-au-vent : pâte découpée et creusée. Galette des rois : frangipane entre 2 disques. Tarte tatin : fond de tarte avec pâte déposée après caramélisation. Feuilletés apéro : pâte découpée, tordue, dorée.' },
-      { type: 'tip', text: 'La pâte feuilletée maison se congèle parfaitement après le tourage. Portionner, filmer, congeler. Décongeler au réfrigérateur 12h avant utilisation. En avoir toujours au congélateur change la donne pour les repas improvisés.' },
-      { type: 'warning', text: 'Ne jamais étaler la pâte feuilletée perpendiculairement à la direction du feuilletage — les couches se désorganisent. Toujours étaler dans le même axe, en longueur, en tournant la pâte d\'un quart de tour entre chaque tour.' },
-      { type: 'recap', text: 'Détrempe : farine + eau + sel + peu de gluten. Beurrage : carré 14-16°C emprisonné. 6 tours simples avec repos au froid = 729 couches. Four très chaud. Congèle parfaitement après tourage. La régularité des couches détermine tout le feuilletage.' },
-      { type: 'exercise', text: 'Commence par une "fausse pâte feuilletée" rapide (feuilletage express) : 250 g farine + 125 g beurre froid en dés + 125 ml eau froide. Mélanger rapidement, faire 3 tours rapides, cuire. Pas aussi parfait, mais le principe du feuilletage est identique et tu comprends la physique avant d\'attaquer la vraie version.' },
+      { type: 'technique', title: 'Four trÃ¨s chaud', text: 'Four prÃ©chauffÃ© 200-220Â°C. La chaleur intense vaporise l\'eau du beurre instantanÃ©ment â†’ chaque couche se soulÃ¨ve. Ã€ 180Â°C ou moins, la vapeur se produit trop lentement et le feuilletage est compact. Toujours dorer Ã  l\'Å“uf (jamais sur les cÃ´tÃ©s â€” Ã§a colle les couches).' },
+      { type: 'technique', title: 'Utilisations classiques', text: 'Millefeuille : 3 couches de pÃ¢te + crÃ¨me pÃ¢tissiÃ¨re. Vol-au-vent : pÃ¢te dÃ©coupÃ©e et creusÃ©e. Galette des rois : frangipane entre 2 disques. Tarte tatin : fond de tarte avec pÃ¢te dÃ©posÃ©e aprÃ¨s caramÃ©lisation. FeuilletÃ©s apÃ©ro : pÃ¢te dÃ©coupÃ©e, tordue, dorÃ©e.' },
+      { type: 'tip', text: 'La pÃ¢te feuilletÃ©e maison se congÃ¨le parfaitement aprÃ¨s le tourage. Portionner, filmer, congeler. DÃ©congeler au rÃ©frigÃ©rateur 12h avant utilisation. En avoir toujours au congÃ©lateur change la donne pour les repas improvisÃ©s.' },
+      { type: 'warning', text: 'Ne jamais Ã©taler la pÃ¢te feuilletÃ©e perpendiculairement Ã  la direction du feuilletage â€” les couches se dÃ©sorganisent. Toujours Ã©taler dans le mÃªme axe, en longueur, en tournant la pÃ¢te d\'un quart de tour entre chaque tour.' },
+      { type: 'recap', text: 'DÃ©trempe : farine + eau + sel + peu de gluten. Beurrage : carrÃ© 14-16Â°C emprisonnÃ©. 6 tours simples avec repos au froid = 729 couches. Four trÃ¨s chaud. CongÃ¨le parfaitement aprÃ¨s tourage. La rÃ©gularitÃ© des couches dÃ©termine tout le feuilletage.' },
+      { type: 'exercise', text: 'Commence par une "fausse pÃ¢te feuilletÃ©e" rapide (feuilletage express) : 250 g farine + 125 g beurre froid en dÃ©s + 125 ml eau froide. MÃ©langer rapidement, faire 3 tours rapides, cuire. Pas aussi parfait, mais le principe du feuilletage est identique et tu comprends la physique avant d\'attaquer la vraie version.' },
     ]),
   },
   {
     slug: 'dressage-presentation',
-    title: 'Dressage & présentation',
-    description: 'Le plat se mange d\'abord avec les yeux : hauteur, couleurs, contraste, netteté.',
+    title: 'Dressage & prÃ©sentation',
+    description: 'Le plat se mange d\'abord avec les yeux : hauteur, couleurs, contraste, nettetÃ©.',
     category: 'prep', skill: 'prep', difficulty: 2, icon: 'palette', gemCost: 30, xpReward: 120, order: 15,
     content: JSON.stringify([
-      { type: 'text', text: 'Le dressage est la dernière étape, et souvent la plus négligée. Pourtant, la présentation d\'un plat conditionne directement la perception de son goût — des études montrent que le même plat est perçu comme 10-20 % plus savoureux quand il est bien dressé. C\'est de la psychologie appliquée à l\'assiette.' },
+      { type: 'text', text: 'Le dressage est la derniÃ¨re Ã©tape, et souvent la plus nÃ©gligÃ©e. Pourtant, la prÃ©sentation d\'un plat conditionne directement la perception de son goÃ»t â€” des Ã©tudes montrent que le mÃªme plat est perÃ§u comme 10-20 % plus savoureux quand il est bien dressÃ©. C\'est de la psychologie appliquÃ©e Ã  l\'assiette.' },
       { type: 'heading', text: 'Les principes fondamentaux' },
-      { type: 'technique', title: 'Règle des 5 éléments', text: 'Un plat bien équilibré contient idéalement : 1. Un élément principal (protéine ou végétal). 2. Un accompagnement texturé. 3. Un élément de couleur. 4. Une sauce ou jus. 5. Un élément de finition (herbe fraîche, zeste, fleur comestible). Pas besoin des 5 à chaque fois, mais y penser structure le dressage.' },
-      { type: 'technique', title: 'Règle du nombre impair', text: 'Disposer 3 éléments identiques plutôt que 4. Présenter 3 gnocchis en triangle plutôt que 4 en carré. Le nombre impair crée un dynamisme visuel, le pair est statique et symétrique (donc prévisible). L\'asymétrie contrôlée est plus élégante que la symétrie parfaite.' },
-      { type: 'technique', title: 'Les points d\'ancrage', text: 'Commencer par l\'élément principal et le placer légèrement décentré (pas au milieu de l\'assiette). La sauce part de dessous (jamais noyée sur l\'élément principal — ça le fait "flotter"). Les garnitures se construisent autour sans combler tout l\'espace blanc.' },
+      { type: 'technique', title: 'RÃ¨gle des 5 Ã©lÃ©ments', text: 'Un plat bien Ã©quilibrÃ© contient idÃ©alement : 1. Un Ã©lÃ©ment principal (protÃ©ine ou vÃ©gÃ©tal). 2. Un accompagnement texturÃ©. 3. Un Ã©lÃ©ment de couleur. 4. Une sauce ou jus. 5. Un Ã©lÃ©ment de finition (herbe fraÃ®che, zeste, fleur comestible). Pas besoin des 5 Ã  chaque fois, mais y penser structure le dressage.' },
+      { type: 'technique', title: 'RÃ¨gle du nombre impair', text: 'Disposer 3 Ã©lÃ©ments identiques plutÃ´t que 4. PrÃ©senter 3 gnocchis en triangle plutÃ´t que 4 en carrÃ©. Le nombre impair crÃ©e un dynamisme visuel, le pair est statique et symÃ©trique (donc prÃ©visible). L\'asymÃ©trie contrÃ´lÃ©e est plus Ã©lÃ©gante que la symÃ©trie parfaite.' },
+      { type: 'technique', title: 'Les points d\'ancrage', text: 'Commencer par l\'Ã©lÃ©ment principal et le placer lÃ©gÃ¨rement dÃ©centrÃ© (pas au milieu de l\'assiette). La sauce part de dessous (jamais noyÃ©e sur l\'Ã©lÃ©ment principal â€” Ã§a le fait "flotter"). Les garnitures se construisent autour sans combler tout l\'espace blanc.' },
       { type: 'heading', text: 'La couleur et le contraste' },
-      { type: 'technique', title: 'Jouer avec les couleurs', text: 'Le vert fraîche (herbes, huile verte) sur un fond crème. La sauce orange sur assiette blanche. Les règles complémentaires de la roue des couleurs s\'appliquent : rouge + vert, orange + violet, jaune + bleu. Un plat monochrome (tout brun, tout blanc) manque d\'appétence — ajouter systématiquement un élément de couleur vive.' },
-      { type: 'technique', title: 'Contraste des textures visuelles', text: 'Associer brillant + mat. Lisse + granuleux. Dense + aérien. Une purée lisse sous une pièce de viande saisie (brillante et croustillante en surface). Un crumble de pain sur un velouté. Des pousses fraîches sur une terrine. Le contraste visuel prépare le contraste en bouche.' },
+      { type: 'technique', title: 'Jouer avec les couleurs', text: 'Le vert fraÃ®che (herbes, huile verte) sur un fond crÃ¨me. La sauce orange sur assiette blanche. Les rÃ¨gles complÃ©mentaires de la roue des couleurs s\'appliquent : rouge + vert, orange + violet, jaune + bleu. Un plat monochrome (tout brun, tout blanc) manque d\'appÃ©tence â€” ajouter systÃ©matiquement un Ã©lÃ©ment de couleur vive.' },
+      { type: 'technique', title: 'Contraste des textures visuelles', text: 'Associer brillant + mat. Lisse + granuleux. Dense + aÃ©rien. Une purÃ©e lisse sous une piÃ¨ce de viande saisie (brillante et croustillante en surface). Un crumble de pain sur un veloutÃ©. Des pousses fraÃ®ches sur une terrine. Le contraste visuel prÃ©pare le contraste en bouche.' },
       { type: 'heading', text: 'Techniques de dressage' },
-      { type: 'technique', title: 'Les sauces : traits et points', text: '3 façons de dresser une sauce : 1. Trait ou virgule (cuillère à soupe retournée, glissée sur l\'assiette). 2. Miroir (verser sur tout le fond de l\'assiette avant de poser les éléments). 3. Points (cuillère ou pipette — 5 à 7 points de taille décroissante). Éviter de noyer l\'élément principal dans la sauce.' },
-      { type: 'technique', title: 'Les hauteurs', text: 'Empiler plutôt qu\'étaler. Un millefeuille vertical, une quenelle de purée, des tranches en éventail. La hauteur donne de la structure et de la présence. Attention : les tours trop hautes tombent et ne sont pas pratiques à manger. La hauteur doit être cohérente avec le plat.' },
-      { type: 'technique', title: 'Les finitions', text: 'Herbes fraîches : ciseler au dernier moment, disposer à la pince. Zestes : à la microplane, directement sur l\'assiette (les huiles essentielles s\'évaporent). Huiles colorées (pistou, huile de piment, huile verte) : pipette ou cuillère. Fleur de sel : petite quantité sur protéines juste avant service. Fleurs comestibles : capucine, bourrache, violette.' },
-      { type: 'tip', text: 'Essuyer les bords et l\'intérieur de l\'assiette avant d\'envoyer : un coup de papier absorbant ou de torchon propre légèrement humide suffit. Les traces de sauce ou d\'éclaboussures sur le bord donnent une impression de négligence qui ruine la présentation.' },
-      { type: 'technique', title: 'Choisir l\'assiette', text: 'Assiette blanche : neutre, met en valeur toutes les couleurs. Assiette noire : dramatique, pour les préparations légères et colorées. Assiette avec rebord : permet la sauce en miroir. Assiette creuse : pour les bouillons, veloutés, carpaccios. Ardoise ou planche en bois : pour les planches de partage et les desserts. Toujours préchauffer les assiettes (four 80°C, 5 min) pour les plats chauds.' },
-      { type: 'recap', text: '5 éléments : principal + texturé + coloré + sauce + finition. Nombre impair. Élément principal décentré. Sauce dessous ou à côté. Contraste couleur + texture. Hauteur modérée. Bords propres. Assiettes préchauffées pour le chaud.' },
-      { type: 'exercise', text: 'Prends un plat que tu cuisines souvent. Fais-le exactement comme d\'habitude, puis dresse-le de 2 façons : 1. Ta façon habituelle (tout sur l\'assiette directement). 2. Avec les principes ici : décentrer l\'élément principal, sauce en trait, herbe fraîche à la pince, bords essuyés. Prends en photo les deux. La différence sera frappante.' },
+      { type: 'technique', title: 'Les sauces : traits et points', text: '3 faÃ§ons de dresser une sauce : 1. Trait ou virgule (cuillÃ¨re Ã  soupe retournÃ©e, glissÃ©e sur l\'assiette). 2. Miroir (verser sur tout le fond de l\'assiette avant de poser les Ã©lÃ©ments). 3. Points (cuillÃ¨re ou pipette â€” 5 Ã  7 points de taille dÃ©croissante). Ã‰viter de noyer l\'Ã©lÃ©ment principal dans la sauce.' },
+      { type: 'technique', title: 'Les hauteurs', text: 'Empiler plutÃ´t qu\'Ã©taler. Un millefeuille vertical, une quenelle de purÃ©e, des tranches en Ã©ventail. La hauteur donne de la structure et de la prÃ©sence. Attention : les tours trop hautes tombent et ne sont pas pratiques Ã  manger. La hauteur doit Ãªtre cohÃ©rente avec le plat.' },
+      { type: 'technique', title: 'Les finitions', text: 'Herbes fraÃ®ches : ciseler au dernier moment, disposer Ã  la pince. Zestes : Ã  la microplane, directement sur l\'assiette (les huiles essentielles s\'Ã©vaporent). Huiles colorÃ©es (pistou, huile de piment, huile verte) : pipette ou cuillÃ¨re. Fleur de sel : petite quantitÃ© sur protÃ©ines juste avant service. Fleurs comestibles : capucine, bourrache, violette.' },
+      { type: 'tip', text: 'Essuyer les bords et l\'intÃ©rieur de l\'assiette avant d\'envoyer : un coup de papier absorbant ou de torchon propre lÃ©gÃ¨rement humide suffit. Les traces de sauce ou d\'Ã©claboussures sur le bord donnent une impression de nÃ©gligence qui ruine la prÃ©sentation.' },
+      { type: 'technique', title: 'Choisir l\'assiette', text: 'Assiette blanche : neutre, met en valeur toutes les couleurs. Assiette noire : dramatique, pour les prÃ©parations lÃ©gÃ¨res et colorÃ©es. Assiette avec rebord : permet la sauce en miroir. Assiette creuse : pour les bouillons, veloutÃ©s, carpaccios. Ardoise ou planche en bois : pour les planches de partage et les desserts. Toujours prÃ©chauffer les assiettes (four 80Â°C, 5 min) pour les plats chauds.' },
+      { type: 'recap', text: '5 Ã©lÃ©ments : principal + texturÃ© + colorÃ© + sauce + finition. Nombre impair. Ã‰lÃ©ment principal dÃ©centrÃ©. Sauce dessous ou Ã  cÃ´tÃ©. Contraste couleur + texture. Hauteur modÃ©rÃ©e. Bords propres. Assiettes prÃ©chauffÃ©es pour le chaud.' },
+      { type: 'exercise', text: 'Prends un plat que tu cuisines souvent. Fais-le exactement comme d\'habitude, puis dresse-le de 2 faÃ§ons : 1. Ta faÃ§on habituelle (tout sur l\'assiette directement). 2. Avec les principes ici : dÃ©centrer l\'Ã©lÃ©ment principal, sauce en trait, herbe fraÃ®che Ã  la pince, bords essuyÃ©s. Prends en photo les deux. La diffÃ©rence sera frappante.' },
     ]),
   },
   {
     slug: 'epices-monde',
-    title: 'Les épices du monde',
-    description: 'Curry, zaatar, ras el hanout, 5 épices : décoder les mélanges qui font voyager.',
+    title: 'Les Ã©pices du monde',
+    description: 'Curry, zaatar, ras el hanout, 5 Ã©pices : dÃ©coder les mÃ©langes qui font voyager.',
     category: 'seasoning', skill: 'seasoning', difficulty: 2, icon: 'globe', gemCost: 30, xpReward: 120, order: 16,
     content: JSON.stringify([
-      { type: 'text', text: 'Les épices sont la mémoire géographique de la cuisine. Chaque grande cuisine du monde a ses mélanges signature, construits sur des siècles d\'échanges commerciaux et de traditions. Les comprendre permet de voyager avec une assiette — et de créer des associations qui semblent nouvelles mais qui sont en fait des équilibres éprouvés.' },
+      { type: 'text', text: 'Les Ã©pices sont la mÃ©moire gÃ©ographique de la cuisine. Chaque grande cuisine du monde a ses mÃ©langes signature, construits sur des siÃ¨cles d\'Ã©changes commerciaux et de traditions. Les comprendre permet de voyager avec une assiette â€” et de crÃ©er des associations qui semblent nouvelles mais qui sont en fait des Ã©quilibres Ã©prouvÃ©s.' },
       { type: 'heading', text: 'Inde et Asie du Sud' },
-      { type: 'technique', title: 'Le curry : pas une épice, un concept', text: 'Il n\'existe pas "une" épice curry : le mot désigne une sauce ou un ragoût épicé. La poudre de curry commerciale est un mélange standardisé (curcuma + coriandre + cumin + poivre + gingembre + fenugrec). En Inde, chaque famille a son masala propre. Le garam masala (épices chaudes : cardamome + clou + cannelle + noix de muscade + poivre) se distingue par ses arômes chauds sans le curcuma.' },
-      { type: 'technique', title: 'Le tarka / tadka', text: 'Technique indienne : faire sauter les épices entières dans de l\'huile chaude avant d\'ajouter les autres ingrédients. Les graines de moutarde, le cumin, les feuilles de curry libèrent leurs huiles essentielles dans le corps gras. Ce bloom d\'épices est 3 à 5 fois plus aromatique que les mêmes épices moulues ajoutées en cours de cuisson.' },
-      { type: 'heading', text: 'Moyen-Orient et Méditerranée' },
-      { type: 'technique', title: 'Zaatar', text: 'Mélange syro-libanais : thym séché + sumac (baies séchées acides) + sésame torréfié + sel. Le sumac apporte une acidité fruitée sans citron. Zaatar + huile d\'olive = trempette. Zaatar sur labneh (yaourt égoutté), sur fromage, sur poisson grillé, sur du pain plat. Un des mélanges les plus versatiles.' },
-      { type: 'technique', title: 'Ras el hanout', text: 'Littéralement "tête de boutique" — les meilleures épices du marchand. Mélange marocain variable (jusqu\'à 30 épices) : cannelle + gingembre + curcuma + coriandre + cardamome + pétales de rose séchés + poivre. Profil : complexe, chaud, légèrement floral. Pour couscous, tajine, cordons bleus épicés.' },
-      { type: 'technique', title: 'Sumac et épices levantines', text: 'Sumac : baies séchées moulues, acidité fruitée rouge sombre. Remplace le citron en sec. Sur hummus, fattoush, viandes grillées. Z\'atar (plante) distinct du zaatar (mélange). Baharat (mélange irakien/turc) : all-spice + poivre + cannelle + coriandre + clou. Pour viandes et riz.' },
+      { type: 'technique', title: 'Le curry : pas une Ã©pice, un concept', text: 'Il n\'existe pas "une" Ã©pice curry : le mot dÃ©signe une sauce ou un ragoÃ»t Ã©picÃ©. La poudre de curry commerciale est un mÃ©lange standardisÃ© (curcuma + coriandre + cumin + poivre + gingembre + fenugrec). En Inde, chaque famille a son masala propre. Le garam masala (Ã©pices chaudes : cardamome + clou + cannelle + noix de muscade + poivre) se distingue par ses arÃ´mes chauds sans le curcuma.' },
+      { type: 'technique', title: 'Le tarka / tadka', text: 'Technique indienne : faire sauter les Ã©pices entiÃ¨res dans de l\'huile chaude avant d\'ajouter les autres ingrÃ©dients. Les graines de moutarde, le cumin, les feuilles de curry libÃ¨rent leurs huiles essentielles dans le corps gras. Ce bloom d\'Ã©pices est 3 Ã  5 fois plus aromatique que les mÃªmes Ã©pices moulues ajoutÃ©es en cours de cuisson.' },
+      { type: 'heading', text: 'Moyen-Orient et MÃ©diterranÃ©e' },
+      { type: 'technique', title: 'Zaatar', text: 'MÃ©lange syro-libanais : thym sÃ©chÃ© + sumac (baies sÃ©chÃ©es acides) + sÃ©same torrÃ©fiÃ© + sel. Le sumac apporte une aciditÃ© fruitÃ©e sans citron. Zaatar + huile d\'olive = trempette. Zaatar sur labneh (yaourt Ã©gouttÃ©), sur fromage, sur poisson grillÃ©, sur du pain plat. Un des mÃ©langes les plus versatiles.' },
+      { type: 'technique', title: 'Ras el hanout', text: 'LittÃ©ralement "tÃªte de boutique" â€” les meilleures Ã©pices du marchand. MÃ©lange marocain variable (jusqu\'Ã  30 Ã©pices) : cannelle + gingembre + curcuma + coriandre + cardamome + pÃ©tales de rose sÃ©chÃ©s + poivre. Profil : complexe, chaud, lÃ©gÃ¨rement floral. Pour couscous, tajine, cordons bleus Ã©picÃ©s.' },
+      { type: 'technique', title: 'Sumac et Ã©pices levantines', text: 'Sumac : baies sÃ©chÃ©es moulues, aciditÃ© fruitÃ©e rouge sombre. Remplace le citron en sec. Sur hummus, fattoush, viandes grillÃ©es. Z\'atar (plante) distinct du zaatar (mÃ©lange). Baharat (mÃ©lange irakien/turc) : all-spice + poivre + cannelle + coriandre + clou. Pour viandes et riz.' },
       { type: 'heading', text: 'Asie de l\'Est' },
-      { type: 'technique', title: 'Les 5 épices chinoises', text: 'Anis étoilé + poivre du Sichuan + clou de girofle + cannelle + fenouil. Profil : anisé, chaud, légèrement engourdi (poivre Sichuan). Incontournable pour porc rôti, canard laqué, marinades. La poudre 5 épices est forte — utiliser avec parcimonie (1/4 c. à c. suffit pour parfumer un plat pour 4).' },
-      { type: 'technique', title: 'Shichimi togarashi', text: 'Mélange japonais de 7 épices : piment + poivre Sichuan + zeste yuzu + sésame noir + graines de chanvre + nori + gingembre. Condiment de finition (ramens, soba, yakitori). Jamais en cuisson — ajouter à table. Chaque ingrédient se sent séparément.' },
-      { type: 'heading', text: 'Conseils universels sur les épices' },
-      { type: 'technique', title: 'Torréfier pour révéler', text: 'Épices entières 1-2 min à sec dans poêle chaude jusqu\'à ce qu\'elles fument légèrement et embaument. Refroidir avant de moudre. La chaleur casse les liaisons chimiques et libère les huiles essentielles. Différence de goût : spectaculaire. Cumin torréfié vs cumin non torréfié = deux épices différentes.' },
-      { type: 'technique', title: 'Conservation et fraîcheur', text: 'Les épices entières se conservent 2-3 ans. Les épices moulues : 6-12 mois maximum (les huiles essentielles s\'évaporent). Test de fraîcheur : frotter entre les doigts et sentir. Si aucun arôme = épice morte à jeter. Stocker à l\'abri de la lumière et de l\'humidité — jamais dans une armoire au-dessus des plaques.' },
-      { type: 'tip', text: 'Construire ses propres mélanges : commencer par les bases (cumin, coriandre, paprika doux) puis ajouter les notes chaudes (cannelle, cardamome, clou) et les notes piquantes (piment, poivre, gingembre). Garder les notes florales (lavande, rose, anis) pour les finales subtiles.' },
-      { type: 'recap', text: 'Curry = concept + masala propre. Tarka = épices entières dans huile chaude. Zaatar = thym + sumac + sésame. Ras el hanout = mélange marocain floral complexe. 5 épices = anis + Sichuan + clou + cannelle + fenouil. Torréfier avant moudre. Fraîcheur = odeur puissante au doigt.' },
-      { type: 'exercise', text: 'Fais ton propre mélange : 2 c. cumin moulu + 1 c. coriandre + 1 c. paprika fumé + 1/2 c. curcuma + 1/2 c. gingembre + 1/4 c. cannelle. Fais revenir oignon + tomates + pois chiches avec ce mélange. C\'est ton premier "masala" personnel — ajuste les proportions selon ton palais.' },
+      { type: 'technique', title: 'Les 5 Ã©pices chinoises', text: 'Anis Ã©toilÃ© + poivre du Sichuan + clou de girofle + cannelle + fenouil. Profil : anisÃ©, chaud, lÃ©gÃ¨rement engourdi (poivre Sichuan). Incontournable pour porc rÃ´ti, canard laquÃ©, marinades. La poudre 5 Ã©pices est forte â€” utiliser avec parcimonie (1/4 c. Ã  c. suffit pour parfumer un plat pour 4).' },
+      { type: 'technique', title: 'Shichimi togarashi', text: 'MÃ©lange japonais de 7 Ã©pices : piment + poivre Sichuan + zeste yuzu + sÃ©same noir + graines de chanvre + nori + gingembre. Condiment de finition (ramens, soba, yakitori). Jamais en cuisson â€” ajouter Ã  table. Chaque ingrÃ©dient se sent sÃ©parÃ©ment.' },
+      { type: 'heading', text: 'Conseils universels sur les Ã©pices' },
+      { type: 'technique', title: 'TorrÃ©fier pour rÃ©vÃ©ler', text: 'Ã‰pices entiÃ¨res 1-2 min Ã  sec dans poÃªle chaude jusqu\'Ã  ce qu\'elles fument lÃ©gÃ¨rement et embaument. Refroidir avant de moudre. La chaleur casse les liaisons chimiques et libÃ¨re les huiles essentielles. DiffÃ©rence de goÃ»t : spectaculaire. Cumin torrÃ©fiÃ© vs cumin non torrÃ©fiÃ© = deux Ã©pices diffÃ©rentes.' },
+      { type: 'technique', title: 'Conservation et fraÃ®cheur', text: 'Les Ã©pices entiÃ¨res se conservent 2-3 ans. Les Ã©pices moulues : 6-12 mois maximum (les huiles essentielles s\'Ã©vaporent). Test de fraÃ®cheur : frotter entre les doigts et sentir. Si aucun arÃ´me = Ã©pice morte Ã  jeter. Stocker Ã  l\'abri de la lumiÃ¨re et de l\'humiditÃ© â€” jamais dans une armoire au-dessus des plaques.' },
+      { type: 'tip', text: 'Construire ses propres mÃ©langes : commencer par les bases (cumin, coriandre, paprika doux) puis ajouter les notes chaudes (cannelle, cardamome, clou) et les notes piquantes (piment, poivre, gingembre). Garder les notes florales (lavande, rose, anis) pour les finales subtiles.' },
+      { type: 'recap', text: 'Curry = concept + masala propre. Tarka = Ã©pices entiÃ¨res dans huile chaude. Zaatar = thym + sumac + sÃ©same. Ras el hanout = mÃ©lange marocain floral complexe. 5 Ã©pices = anis + Sichuan + clou + cannelle + fenouil. TorrÃ©fier avant moudre. FraÃ®cheur = odeur puissante au doigt.' },
+      { type: 'exercise', text: 'Fais ton propre mÃ©lange : 2 c. cumin moulu + 1 c. coriandre + 1 c. paprika fumÃ© + 1/2 c. curcuma + 1/2 c. gingembre + 1/4 c. cannelle. Fais revenir oignon + tomates + pois chiches avec ce mÃ©lange. C\'est ton premier "masala" personnel â€” ajuste les proportions selon ton palais.' },
     ]),
   },
   {
     slug: 'confiserie-caramel',
     title: 'Confiserie & caramel',
-    description: 'Caramel à sec et à l\'eau, nougat, pralin, toffee : la chimie sucrée sans peur.',
+    description: 'Caramel Ã  sec et Ã  l\'eau, nougat, pralin, toffee : la chimie sucrÃ©e sans peur.',
     category: 'baking', skill: 'baking', difficulty: 3, icon: 'candy', gemCost: 50, xpReward: 180, order: 17,
     content: JSON.stringify([
-      { type: 'text', text: 'Le sucre est un ingrédient vivant qui change radicalement de propriétés selon sa température. De 100°C à 170°C, en passant par le grand boulé et le grand cassé, chaque stade donne un résultat différent. Comprendre la chimie du sucre, c\'est éliminer toute la peur de la confiserie.' },
+      { type: 'text', text: 'Le sucre est un ingrÃ©dient vivant qui change radicalement de propriÃ©tÃ©s selon sa tempÃ©rature. De 100Â°C Ã  170Â°C, en passant par le grand boulÃ© et le grand cassÃ©, chaque stade donne un rÃ©sultat diffÃ©rent. Comprendre la chimie du sucre, c\'est Ã©liminer toute la peur de la confiserie.' },
       { type: 'heading', text: 'Les stades du sucre' },
-      { type: 'technique', title: 'Lire la température', text: 'Indispensable : thermomètre à sucre ou thermomètre sonde. Les températures sont précises et critiques — 5°C de plus ou de moins change complètement le résultat. Napper/filet : 103-105°C. Petit boulé : 116-118°C (caramel mou, nougat tendre). Grand boulé : 124-130°C (caramel dur). Petit cassé : 135-140°C (sucre tiré). Grand cassé : 150-155°C (berlingots, sucettes). Caramel : 160-175°C (couleur ambre).' },
+      { type: 'technique', title: 'Lire la tempÃ©rature', text: 'Indispensable : thermomÃ¨tre Ã  sucre ou thermomÃ¨tre sonde. Les tempÃ©ratures sont prÃ©cises et critiques â€” 5Â°C de plus ou de moins change complÃ¨tement le rÃ©sultat. Napper/filet : 103-105Â°C. Petit boulÃ© : 116-118Â°C (caramel mou, nougat tendre). Grand boulÃ© : 124-130Â°C (caramel dur). Petit cassÃ© : 135-140Â°C (sucre tirÃ©). Grand cassÃ© : 150-155Â°C (berlingots, sucettes). Caramel : 160-175Â°C (couleur ambre).' },
       { type: 'heading', text: 'Le caramel' },
-      { type: 'technique', title: 'Caramel à sec', text: 'Verser le sucre directement dans une casserole à fond épais. Feu moyen. Ne jamais mélanger au début — attendre que les bords fondent et caramélisent. Incliner la casserole pour homogénéiser. Arrêter à la couleur ambre foncé (175-180°C). Plus il est foncé = plus il est amer et complexe. 185°C = brûlé, irréparable.' },
-      { type: 'technique', title: 'Caramel à l\'eau', text: 'Sucre + eau (25% du poids du sucre) + quelques gouttes de citron (évite la cristallisation). Chauffer sans mélanger jusqu\'à coloration. L\'eau contrôle la montée en température, plus facile pour les débutants. Inconvénient : plus long, risque de cristallisation si projection de sucre sur les parois (pincer les bords avec pinceau humide).' },
-      { type: 'technique', title: 'Décuire le caramel', text: 'Pour la sauce caramel : décuire avec crème chaude (jamais froide — projections et éclaboussures brûlantes). Verser la crème en filet sur le caramel très chaud en fouettant. Ajouter beurre froid en dés. Pour le caramel au sel : fleur de sel après décuisson, jamais pendant (se dissout et change le goût).' },
+      { type: 'technique', title: 'Caramel Ã  sec', text: 'Verser le sucre directement dans une casserole Ã  fond Ã©pais. Feu moyen. Ne jamais mÃ©langer au dÃ©but â€” attendre que les bords fondent et caramÃ©lisent. Incliner la casserole pour homogÃ©nÃ©iser. ArrÃªter Ã  la couleur ambre foncÃ© (175-180Â°C). Plus il est foncÃ© = plus il est amer et complexe. 185Â°C = brÃ»lÃ©, irrÃ©parable.' },
+      { type: 'technique', title: 'Caramel Ã  l\'eau', text: 'Sucre + eau (25% du poids du sucre) + quelques gouttes de citron (Ã©vite la cristallisation). Chauffer sans mÃ©langer jusqu\'Ã  coloration. L\'eau contrÃ´le la montÃ©e en tempÃ©rature, plus facile pour les dÃ©butants. InconvÃ©nient : plus long, risque de cristallisation si projection de sucre sur les parois (pincer les bords avec pinceau humide).' },
+      { type: 'technique', title: 'DÃ©cuire le caramel', text: 'Pour la sauce caramel : dÃ©cuire avec crÃ¨me chaude (jamais froide â€” projections et Ã©claboussures brÃ»lantes). Verser la crÃ¨me en filet sur le caramel trÃ¨s chaud en fouettant. Ajouter beurre froid en dÃ©s. Pour le caramel au sel : fleur de sel aprÃ¨s dÃ©cuisson, jamais pendant (se dissout et change le goÃ»t).' },
       { type: 'heading', text: 'Pralin et nougat' },
-      { type: 'technique', title: 'Pralin et praliné', text: 'Pralin : caramel coulé sur fruits secs torréfiés (amandes, noisettes). Refroidir sur silicone. Mixer jusqu\'à poudre granuleuse = pralin en poudre. Continuer à mixer jusqu\'à pâte lisse = praliné (texture beurre de cacahuète). Utilisation : intérieur de bonbons, insert d\'entremets, glaces, mousses.' },
-      { type: 'technique', title: 'Nougat de Montélimar', text: 'Cuire sucre + glucose + miel à 145°C (grand cassé). En parallèle, monter blancs en neige ferme. Verser le sucre cuit en filet sur les blancs montés en fouettant (comme une meringue italienne). Ajouter amandes + pistaches entières torréfiées. Étaler entre feuilles de pain azyme. Refroidir 12h. La technique du sucre cuit versé sur blanc = meringue italienne.' },
-      { type: 'warning', text: 'Le sucre à haute température (>150°C) est extrêmement dangereux : 5x plus brûlant que l\'eau bouillante et colle à la peau. Jamais sans tablier + gants. Avoir immédiatement un grand saladier d\'eau glacée à portée. En cas de brûlure au sucre : eau froide courante 15 min minimum.' },
-      { type: 'technique', title: 'Toffee et caramel anglais', text: 'Beurre + sucre brun cuits ensemble à 130°C (sans eau). Texture : craquant comme du verre une fois refroidi. Verser sur plaque, parsemer de chocolat fondu + fleur de sel, refroidir. Casser en morceaux irréguliers. La différence avec le caramel français : le beurre cuit avec le sucre dès le début (caramélisation des solides du lait).' },
-      { type: 'tip', text: 'Éviter la cristallisation : ne jamais mélanger avec une cuillère une fois le sucre fondu. Utiliser un pinceau humide pour badigeonner les parois de la casserole si du sucre y colle. Une seule cristallisation d\'un grain de sucre peut entraîner tout le caramel en cascade.' },
-      { type: 'recap', text: 'Températures : petit boulé 116°C, grand boulé 130°C, petit cassé 138°C, grand cassé 152°C, caramel 165-175°C. Sec = direct, rapide, risqué. À l\'eau = plus doux, risque cristallisation. Décuire avec crème chaude. Pralin = caramel + fruits secs mixés. Sécurité : eau froide à portée.' },
-      { type: 'exercise', text: 'Fais une sauce caramel au beurre salé : 100 g sucre à sec, caramel ambré, décuire avec 10 cl crème chaude, 30 g beurre + fleur de sel. Verse sur une glace vanille. C\'est la base — simple, parfaite, aucun compromis possible sur la technique.' },
+      { type: 'technique', title: 'Pralin et pralinÃ©', text: 'Pralin : caramel coulÃ© sur fruits secs torrÃ©fiÃ©s (amandes, noisettes). Refroidir sur silicone. Mixer jusqu\'Ã  poudre granuleuse = pralin en poudre. Continuer Ã  mixer jusqu\'Ã  pÃ¢te lisse = pralinÃ© (texture beurre de cacahuÃ¨te). Utilisation : intÃ©rieur de bonbons, insert d\'entremets, glaces, mousses.' },
+      { type: 'technique', title: 'Nougat de MontÃ©limar', text: 'Cuire sucre + glucose + miel Ã  145Â°C (grand cassÃ©). En parallÃ¨le, monter blancs en neige ferme. Verser le sucre cuit en filet sur les blancs montÃ©s en fouettant (comme une meringue italienne). Ajouter amandes + pistaches entiÃ¨res torrÃ©fiÃ©es. Ã‰taler entre feuilles de pain azyme. Refroidir 12h. La technique du sucre cuit versÃ© sur blanc = meringue italienne.' },
+      { type: 'warning', text: 'Le sucre Ã  haute tempÃ©rature (>150Â°C) est extrÃªmement dangereux : 5x plus brÃ»lant que l\'eau bouillante et colle Ã  la peau. Jamais sans tablier + gants. Avoir immÃ©diatement un grand saladier d\'eau glacÃ©e Ã  portÃ©e. En cas de brÃ»lure au sucre : eau froide courante 15 min minimum.' },
+      { type: 'technique', title: 'Toffee et caramel anglais', text: 'Beurre + sucre brun cuits ensemble Ã  130Â°C (sans eau). Texture : craquant comme du verre une fois refroidi. Verser sur plaque, parsemer de chocolat fondu + fleur de sel, refroidir. Casser en morceaux irrÃ©guliers. La diffÃ©rence avec le caramel franÃ§ais : le beurre cuit avec le sucre dÃ¨s le dÃ©but (caramÃ©lisation des solides du lait).' },
+      { type: 'tip', text: 'Ã‰viter la cristallisation : ne jamais mÃ©langer avec une cuillÃ¨re une fois le sucre fondu. Utiliser un pinceau humide pour badigeonner les parois de la casserole si du sucre y colle. Une seule cristallisation d\'un grain de sucre peut entraÃ®ner tout le caramel en cascade.' },
+      { type: 'recap', text: 'TempÃ©ratures : petit boulÃ© 116Â°C, grand boulÃ© 130Â°C, petit cassÃ© 138Â°C, grand cassÃ© 152Â°C, caramel 165-175Â°C. Sec = direct, rapide, risquÃ©. Ã€ l\'eau = plus doux, risque cristallisation. DÃ©cuire avec crÃ¨me chaude. Pralin = caramel + fruits secs mixÃ©s. SÃ©curitÃ© : eau froide Ã  portÃ©e.' },
+      { type: 'exercise', text: 'Fais une sauce caramel au beurre salÃ© : 100 g sucre Ã  sec, caramel ambrÃ©, dÃ©cuire avec 10 cl crÃ¨me chaude, 30 g beurre + fleur de sel. Verse sur une glace vanille. C\'est la base â€” simple, parfaite, aucun compromis possible sur la technique.' },
     ]),
   },
   {
     slug: 'levures-fermentation',
     title: 'Levures et fermentation',
-    description: 'Levures, gluten, pointage, apprêt : comprendre la biologie du pain pour le maîtriser.',
+    description: 'Levures, gluten, pointage, apprÃªt : comprendre la biologie du pain pour le maÃ®triser.',
     category: 'baking', skill: 'baking', difficulty: 3, icon: 'activity', gemCost: 50, xpReward: 180, order: 18,
     content: JSON.stringify([
-      { type: 'text', text: 'Faire du pain, c\'est travailler avec du vivant. La levure est un champignon microscopique qui transforme les sucres en CO₂ et en alcool. Ce gaz fait lever la pâte, l\'alcool s\'évapore à la cuisson. Comprendre ce processus biologique te permet de contrôler le résultat au lieu de subir la fermentation.' },
+      { type: 'text', text: 'Faire du pain, c\'est travailler avec du vivant. La levure est un champignon microscopique qui transforme les sucres en COâ‚‚ et en alcool. Ce gaz fait lever la pÃ¢te, l\'alcool s\'Ã©vapore Ã  la cuisson. Comprendre ce processus biologique te permet de contrÃ´ler le rÃ©sultat au lieu de subir la fermentation.' },
       { type: 'heading', text: 'Les types de levures' },
-      { type: 'technique', title: 'Levure boulangère fraîche', text: 'Levure fraîche (cube gris) : 20-25 g pour 500 g de farine. Plus active, arômes plus complexes. Conserver au réfrigérateur, utiliser dans les 2 semaines. Émietter directement dans la farine — pas besoin de la diluer dans l\'eau, contrairement à la croyance populaire.' },
-      { type: 'technique', title: 'Levure sèche active et instantanée', text: 'Levure sèche active : réhydrater 10 min dans eau tiède (35°C) avec pincée de sucre avant utilisation. Levure instantanée (la plus courante) : mélanger directement à la farine sèche. Dosage : 7 g (un sachet) pour 500 g de farine. Conservation : 1 an à l\'abri de l\'humidité.' },
-      { type: 'technique', title: 'Le levain naturel', text: 'Farine + eau + bactéries lactiques naturelles. Fermentation lente (12-24h), arômes complexes (légèrement acide), meilleure conservation du pain. Entretien quotidien : nourrir avec farine + eau. Le levain actif double de volume en 4-6h après alimentation. Un levain bien entretenu dure des années.' },
-      { type: 'warning', text: 'Ne jamais mettre la levure en contact direct avec le sel — le sel est un bactéricide et tue la levure instantanément. Ajouter le sel d\'un côté de la cuve, la levure de l\'autre, mélanger après.' },
-      { type: 'heading', text: 'Le gluten et le pétrissage' },
-      { type: 'technique', title: 'Comprendre le gluten', text: 'Le gluten est un réseau de protéines (gliadine + gluténine) qui se forment quand la farine est hydratée et travaillée. Ce réseau élastique piège le CO₂ produit par la levure — sans gluten, les bulles s\'échappent et le pain reste plat. Plus on pétrit, plus le réseau est fort.' },
-      { type: 'technique', title: 'Le pétrissage classique', text: 'Pousser la pâte avec la paume de la main, replier vers soi, tourner d\'un quart de tour, recommencer. 10-15 minutes à la main. La pâte est prête quand elle est lisse, élastique et ne colle plus aux doigts. Test du voile : étirer un morceau de pâte entre les doigts — elle doit former un voile transparent sans se déchirer.' },
-      { type: 'technique', title: 'L\'autolyse', text: 'Technique moderne : mélanger farine + eau uniquement (sans sel ni levure), laisser reposer 20-60 min. La farine s\'hydrate naturellement et le gluten commence à se former sans effort. Résultat : pâte plus extensible, moins de pétrissage nécessaire, meilleure texture finale.' },
+      { type: 'technique', title: 'Levure boulangÃ¨re fraÃ®che', text: 'Levure fraÃ®che (cube gris) : 20-25 g pour 500 g de farine. Plus active, arÃ´mes plus complexes. Conserver au rÃ©frigÃ©rateur, utiliser dans les 2 semaines. Ã‰mietter directement dans la farine â€” pas besoin de la diluer dans l\'eau, contrairement Ã  la croyance populaire.' },
+      { type: 'technique', title: 'Levure sÃ¨che active et instantanÃ©e', text: 'Levure sÃ¨che active : rÃ©hydrater 10 min dans eau tiÃ¨de (35Â°C) avec pincÃ©e de sucre avant utilisation. Levure instantanÃ©e (la plus courante) : mÃ©langer directement Ã  la farine sÃ¨che. Dosage : 7 g (un sachet) pour 500 g de farine. Conservation : 1 an Ã  l\'abri de l\'humiditÃ©.' },
+      { type: 'technique', title: 'Le levain naturel', text: 'Farine + eau + bactÃ©ries lactiques naturelles. Fermentation lente (12-24h), arÃ´mes complexes (lÃ©gÃ¨rement acide), meilleure conservation du pain. Entretien quotidien : nourrir avec farine + eau. Le levain actif double de volume en 4-6h aprÃ¨s alimentation. Un levain bien entretenu dure des annÃ©es.' },
+      { type: 'warning', text: 'Ne jamais mettre la levure en contact direct avec le sel â€” le sel est un bactÃ©ricide et tue la levure instantanÃ©ment. Ajouter le sel d\'un cÃ´tÃ© de la cuve, la levure de l\'autre, mÃ©langer aprÃ¨s.' },
+      { type: 'heading', text: 'Le gluten et le pÃ©trissage' },
+      { type: 'technique', title: 'Comprendre le gluten', text: 'Le gluten est un rÃ©seau de protÃ©ines (gliadine + glutÃ©nine) qui se forment quand la farine est hydratÃ©e et travaillÃ©e. Ce rÃ©seau Ã©lastique piÃ¨ge le COâ‚‚ produit par la levure â€” sans gluten, les bulles s\'Ã©chappent et le pain reste plat. Plus on pÃ©trit, plus le rÃ©seau est fort.' },
+      { type: 'technique', title: 'Le pÃ©trissage classique', text: 'Pousser la pÃ¢te avec la paume de la main, replier vers soi, tourner d\'un quart de tour, recommencer. 10-15 minutes Ã  la main. La pÃ¢te est prÃªte quand elle est lisse, Ã©lastique et ne colle plus aux doigts. Test du voile : Ã©tirer un morceau de pÃ¢te entre les doigts â€” elle doit former un voile transparent sans se dÃ©chirer.' },
+      { type: 'technique', title: 'L\'autolyse', text: 'Technique moderne : mÃ©langer farine + eau uniquement (sans sel ni levure), laisser reposer 20-60 min. La farine s\'hydrate naturellement et le gluten commence Ã  se former sans effort. RÃ©sultat : pÃ¢te plus extensible, moins de pÃ©trissage nÃ©cessaire, meilleure texture finale.' },
       { type: 'heading', text: 'Les deux fermentations' },
-      { type: 'technique', title: 'Le pointage — première pousse', text: 'Après le pétrissage, la pâte repose à couvert dans un récipient légèrement huilé. Elle doit doubler de volume. Température ambiante (22-24°C) : 1h30 à 2h. Réfrigérateur (4°C) : 8-12h (pousse lente, arômes plus complexes). Le froid ralentit la levure mais ne la tue pas.' },
-      { type: 'technique', title: 'Le façonnage et l\'apprêt', text: 'Après le pointage : dégazer délicatement (appuyer pour chasser le CO₂), façonner (boule, baguette, miche), placer sur papier cuisson ou banneton fariné. Laisser lever une 2e fois (l\'apprêt) : 45 min à 1h30 à température ambiante. La pâte doit avoir légèrement gonflé et rebondir mollement au toucher.' },
-      { type: 'tip', text: 'Test de la fermentation : appuyer un doigt fariné sur la pâte. Si l\'empreinte remonte lentement → parfait. Si elle remonte immédiatement → pas assez fermenté. Si elle ne remonte pas → sur-fermenté (la pâte sera dense et acide).' },
+      { type: 'technique', title: 'Le pointage â€” premiÃ¨re pousse', text: 'AprÃ¨s le pÃ©trissage, la pÃ¢te repose Ã  couvert dans un rÃ©cipient lÃ©gÃ¨rement huilÃ©. Elle doit doubler de volume. TempÃ©rature ambiante (22-24Â°C) : 1h30 Ã  2h. RÃ©frigÃ©rateur (4Â°C) : 8-12h (pousse lente, arÃ´mes plus complexes). Le froid ralentit la levure mais ne la tue pas.' },
+      { type: 'technique', title: 'Le faÃ§onnage et l\'apprÃªt', text: 'AprÃ¨s le pointage : dÃ©gazer dÃ©licatement (appuyer pour chasser le COâ‚‚), faÃ§onner (boule, baguette, miche), placer sur papier cuisson ou banneton farinÃ©. Laisser lever une 2e fois (l\'apprÃªt) : 45 min Ã  1h30 Ã  tempÃ©rature ambiante. La pÃ¢te doit avoir lÃ©gÃ¨rement gonflÃ© et rebondir mollement au toucher.' },
+      { type: 'tip', text: 'Test de la fermentation : appuyer un doigt farinÃ© sur la pÃ¢te. Si l\'empreinte remonte lentement â†’ parfait. Si elle remonte immÃ©diatement â†’ pas assez fermentÃ©. Si elle ne remonte pas â†’ sur-fermentÃ© (la pÃ¢te sera dense et acide).' },
       { type: 'heading', text: 'La cuisson' },
-      { type: 'technique', title: 'La buée et la croûte', text: 'Four le plus chaud possible (240-260°C, préchauffé 30 min). Créer de la buée les 10 premières minutes : jeter 100 ml d\'eau dans la lèchefrite, ou cuire dans une cocotte fermée. La buée retarde la formation de la croûte et permet au pain de prendre son volume. Ensuite : ouvrir le four, évacuer la buée, finir la cuisson à sec pour la croûte dorée.' },
-      { type: 'technique', title: 'La scarification (grigne)', text: 'Inciser le pain avec une lame de rasoir (grigne) juste avant d\'enfourner. Profondeur : 5 mm, angle : 45°. La scarification dirige l\'expansion du pain, évite qu\'il éclate aléatoirement et crée le motif distinctif du pain artisanal.' },
-      { type: 'warning', text: 'Un four domestique ne dépasse généralement pas 250°C contre 300-350°C pour un four de boulangerie professionnel. Compense avec une plus longue préchauffage, une pierre à pizza ou une cocotte en fonte pour stocker la chaleur.' },
-      { type: 'recap', text: 'Levure + sucres → CO₂ qui fait lever. Sel ≠ levure (jamais en contact direct). Gluten = réseau élastique qui piège les bulles. Pointage → 1e pousse, apprêt → 2e pousse. Buée au four → volume et croûte craquante. Test du doigt pour vérifier la fermentation.' },
-      { type: 'exercise', text: 'Fais un pain basique : 500 g farine T65 + 7 g levure instantanée + 10 g sel + 320 ml eau tiède. Pétris 10 min, laisse pousser 1h30, façonne en boule, appret 1h, scarifie, four 240°C avec buée. Le résultat sera meilleur que tu ne l\'imagines — et tu comprendras chaque étape en faisant.' },
+      { type: 'technique', title: 'La buÃ©e et la croÃ»te', text: 'Four le plus chaud possible (240-260Â°C, prÃ©chauffÃ© 30 min). CrÃ©er de la buÃ©e les 10 premiÃ¨res minutes : jeter 100 ml d\'eau dans la lÃ¨chefrite, ou cuire dans une cocotte fermÃ©e. La buÃ©e retarde la formation de la croÃ»te et permet au pain de prendre son volume. Ensuite : ouvrir le four, Ã©vacuer la buÃ©e, finir la cuisson Ã  sec pour la croÃ»te dorÃ©e.' },
+      { type: 'technique', title: 'La scarification (grigne)', text: 'Inciser le pain avec une lame de rasoir (grigne) juste avant d\'enfourner. Profondeur : 5 mm, angle : 45Â°. La scarification dirige l\'expansion du pain, Ã©vite qu\'il Ã©clate alÃ©atoirement et crÃ©e le motif distinctif du pain artisanal.' },
+      { type: 'warning', text: 'Un four domestique ne dÃ©passe gÃ©nÃ©ralement pas 250Â°C contre 300-350Â°C pour un four de boulangerie professionnel. Compense avec une plus longue prÃ©chauffage, une pierre Ã  pizza ou une cocotte en fonte pour stocker la chaleur.' },
+      { type: 'recap', text: 'Levure + sucres â†’ COâ‚‚ qui fait lever. Sel â‰  levure (jamais en contact direct). Gluten = rÃ©seau Ã©lastique qui piÃ¨ge les bulles. Pointage â†’ 1e pousse, apprÃªt â†’ 2e pousse. BuÃ©e au four â†’ volume et croÃ»te craquante. Test du doigt pour vÃ©rifier la fermentation.' },
+      { type: 'exercise', text: 'Fais un pain basique : 500 g farine T65 + 7 g levure instantanÃ©e + 10 g sel + 320 ml eau tiÃ¨de. PÃ©tris 10 min, laisse pousser 1h30, faÃ§onne en boule, appret 1h, scarifie, four 240Â°C avec buÃ©e. Le rÃ©sultat sera meilleur que tu ne l\'imagines â€” et tu comprendras chaque Ã©tape en faisant.' },
     ]),
   },
 ];
@@ -1609,37 +1723,37 @@ async function seedLessons() {
       create: lesson,
     });
   }
-  console.log(`🎓 ${LESSON_SEED.length} leçons mises à jour`);
+  console.log(`ðŸŽ“ ${LESSON_SEED.length} leÃ§ons mises Ã  jour`);
 }
 
-// Comptes Pro permanents : liste de usernames séparés par virgule dans PRO_USERNAMES
+// Comptes Pro permanents : liste de usernames sÃ©parÃ©s par virgule dans PRO_USERNAMES
 async function grantProToFixedAccounts() {
   const raw = (process.env.PRO_USERNAMES || '').trim();
   if (!raw) return;
   const usernames = raw.split(',').map((u) => u.trim().toLowerCase()).filter(Boolean);
   if (!usernames.length) return;
   const { count } = await prisma.user.updateMany({ where: { username: { in: usernames }, isPro: false }, data: { isPro: true } });
-  if (count) console.log(`⭐ ${count} compte(s) Pro activé(s) : ${usernames.join(', ')}`);
+  if (count) console.log(`â­ ${count} compte(s) Pro activÃ©(s) : ${usernames.join(', ')}`);
 }
 
 app.listen(PORT, () => {
   const dbHost = (process.env.DATABASE_URL || 'sqlite').replace(/\/\/[^@]+@/, '//***@').split('/')[2] || 'local';
-  console.log(`🔥 CulinaRPG en ligne sur http://localhost:${PORT} — DB: ${dbHost}`);
+  console.log(`ðŸ”¥ CulinaRPG en ligne sur http://localhost:${PORT} â€” DB: ${dbHost}`);
 
-  // Pré-chauffe la connexion Neon + crée les tables manquantes
+  // PrÃ©-chauffe la connexion Neon + crÃ©e les tables manquantes
   (async () => {
     for (let i = 1; i <= 5; i++) {
       try {
         await _baseClient.$queryRaw`SELECT 1`;
-        console.log('✅ Base de données connectée.');
+        console.log('âœ… Base de donnÃ©es connectÃ©e.');
         break;
       } catch (err) {
-        console.log(`⏳ DB tentative ${i}/5 (${err.code || err.message?.slice(0, 40)}) — attente ${i * 4}s...`);
+        console.log(`â³ DB tentative ${i}/5 (${err.code || err.message?.slice(0, 40)}) â€” attente ${i * 4}s...`);
         if (i < 5) await new Promise((r) => setTimeout(r, i * 4000));
-        else { console.error('❌ DB inaccessible après 5 tentatives.'); return; }
+        else { console.error('âŒ DB inaccessible aprÃ¨s 5 tentatives.'); return; }
       }
     }
-    // S'assure que la table Friendship existe (créée après le déploiement initial)
+    // S'assure que la table Friendship existe (crÃ©Ã©e aprÃ¨s le dÃ©ploiement initial)
     try {
       await _baseClient.$executeRaw`
         CREATE TABLE IF NOT EXISTS "Friendship" (
@@ -1655,9 +1769,9 @@ app.listen(PORT, () => {
         )
       `;
       await _baseClient.$executeRaw`CREATE INDEX IF NOT EXISTS "Friendship_addresseeId_idx" ON "Friendship"("addresseeId")`;
-      console.log('✅ Table Friendship prête.');
+      console.log('âœ… Table Friendship prÃªte.');
     } catch (err) {
-      console.log('⚠️ Friendship table check:', err.message?.slice(0, 80));
+      console.log('âš ï¸ Friendship table check:', err.message?.slice(0, 80));
     }
   })();
 
@@ -1673,3 +1787,4 @@ process.on('SIGINT', async () => {
   await prisma.$disconnect();
   process.exit(0);
 });
+

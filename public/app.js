@@ -86,6 +86,45 @@
     constructor(message, status, field) { super(message); this.status = status; this.field = field; }
   }
 
+  // ===========================================================================
+  // TWA / Google Play Billing helpers
+  // ===========================================================================
+
+  // Retourne true si l'app tourne dans une Trusted Web Activity Android
+  function isTWA() {
+    try {
+      return document.referrer.startsWith('android-app://') || navigator.userAgent.includes('TWA') || sessionStorage.getItem('twa') === '1';
+    } catch { return false; }
+  }
+
+  // Tente d'ouvrir le service Google Play Billing via Digital Goods API
+  // Retourne le service ou null si non disponible
+  async function getPlayBillingService() {
+    if (typeof window.getDigitalGoodsService !== 'function') return null;
+    try {
+      const svc = await window.getDigitalGoodsService('https://play.google.com/billing');
+      return svc || null;
+    } catch { return null; }
+  }
+
+  // Lance un achat Google Play (subscription ou one-time)
+  // productId: ex. 'pro_annual', 'gems_300'
+  // Retourne { productId, purchaseToken } ou lance une erreur
+  async function playPurchase(productId) {
+    const svc = await getPlayBillingService();
+    if (!svc) throw new Error('Google Play Billing non disponible');
+    const request = new PaymentRequest(
+      [{ supportedMethods: 'https://play.google.com/billing', data: { sku: productId } }],
+      { total: { label: 'CulinaRPG', amount: { currency: 'EUR', value: '0' } } },
+    );
+    const canPay = await request.canMakePayment();
+    if (!canPay) throw new Error('Paiement Google Play non disponible sur cet appareil');
+    const response = await request.show();
+    const { token } = response.details;
+    await response.complete('success');
+    return { productId, purchaseToken: token };
+  }
+
   async function api(path, opts = {}) {
     const res = await fetch(path, {
       credentials: 'same-origin',
@@ -2480,7 +2519,7 @@
         </button>
       </div>
 
-      <p class="text-center text-xs text-stone-400">Résiliable à tout moment · Paiement sécurisé Stripe</p>
+      <p class="text-center text-xs text-stone-400">Résiliable à tout moment · Paiement sécurisé</p>
     </div>`;
     icons();
 
@@ -2489,9 +2528,17 @@
         const plan = btn.dataset.proPlan;
         btn.disabled = true; btn.style.opacity = '0.6';
         try {
-          const res = await api('/api/stripe/checkout/pro', { method: 'POST', body: { plan } });
-          if (res.url) { window.location.href = res.url; return; }
-          if (state.profile) { state.profile.isPro = true; }
+          if (isTWA()) {
+            // Google Play Billing
+            const productId = plan === 'monthly' ? 'pro_monthly' : 'pro_annual';
+            const purchase = await playPurchase(productId);
+            const res = await api('/api/play/billing/pro', { method: 'POST', body: purchase });
+            if (state.profile) state.profile.isPro = res.isPro;
+          } else {
+            const res = await api('/api/stripe/checkout/pro', { method: 'POST', body: { plan } });
+            if (res.url) { window.location.href = res.url; return; }
+            if (state.profile) state.profile.isPro = true;
+          }
           haptic([20, 30, 20]); fx.fireworks(2000);
           toast('Bienvenue dans le club Pro ⭐ !', { icon: 'star', tone: 'emerald' });
           renderPro();
@@ -2603,9 +2650,16 @@
       if (packBtn) {
         packBtn.disabled = true; packBtn.style.opacity = '0.6';
         try {
-          const res = await api('/api/stripe/checkout/gems', { method: 'POST', body: { pack: packBtn.dataset.gemPack } });
-          if (res.url) { window.location.href = res.url; return; }
-          // Mode simulation (pas de clé Stripe)
+          let res;
+          if (isTWA()) {
+            const packId = packBtn.dataset.gemPack;
+            const playPackId = `gems_${packId === 'small' ? '100' : packId === 'medium' ? '300' : '700'}`;
+            const purchase = await playPurchase(playPackId);
+            res = await api('/api/play/billing/gems', { method: 'POST', body: purchase });
+          } else {
+            res = await api('/api/stripe/checkout/gems', { method: 'POST', body: { pack: packBtn.dataset.gemPack } });
+            if (res.url) { window.location.href = res.url; return; }
+          }
           if (state.profile) { state.profile.gems = res.gems; renderHeader(); }
           closeModal(); haptic(30);
           toast(`+${fmt(res.earned)} 💎 gemmes ajoutées !`, { icon: 'gem', tone: 'emerald' });
@@ -2620,10 +2674,16 @@
       if (proBtn) {
         proBtn.disabled = true; proBtn.style.opacity = '0.6';
         try {
-          const res = await api('/api/stripe/checkout/pro', { method: 'POST', body: { plan: proBtn.dataset.proPlan } });
-          if (res.url) { window.location.href = res.url; return; }
-          // Mode simulation
-          if (state.profile) state.profile.isPro = true;
+          if (isTWA()) {
+            const productId = proBtn.dataset.proPlan === 'monthly' ? 'pro_monthly' : 'pro_annual';
+            const purchase = await playPurchase(productId);
+            const res = await api('/api/play/billing/pro', { method: 'POST', body: purchase });
+            if (state.profile) state.profile.isPro = res.isPro;
+          } else {
+            const res = await api('/api/stripe/checkout/pro', { method: 'POST', body: { plan: proBtn.dataset.proPlan } });
+            if (res.url) { window.location.href = res.url; return; }
+            if (state.profile) state.profile.isPro = true;
+          }
           closeModal(); haptic([20, 30, 20]); fx.fireworks(1500);
           toast('Bienvenue dans le club Pro ⭐ !', { icon: 'star', tone: 'emerald' });
           await loadProfile();
