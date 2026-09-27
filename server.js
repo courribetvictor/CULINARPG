@@ -549,7 +549,7 @@ app.get('/api/recipes', wrap(async (req, res) => {
       take: limit,
       select: {
         id: true, name: true, description: true, category: true, area: true, source: true, imageUrl: true,
-        emoji: true, timeMinutes: true, difficulty: true, skillRewards: true, totalXp: true,
+        emoji: true, timeMinutes: true, difficulty: true, skillRewards: true, totalXp: true, isCustom: true,
       },
     }),
   ]);
@@ -561,12 +561,16 @@ app.get('/api/recipes', wrap(async (req, res) => {
   });
   const countMap = Object.fromEntries(counts.map((c) => [c.recipeId, c._count._all]));
 
+  const isPro = req.user.isPro || false;
   res.json({
     page,
     limit,
     total,
     totalPages: Math.max(1, Math.ceil(total / limit)),
-    items: rows.map((r) => serializeRecipe(r, countMap[r.id] || 0)),
+    items: rows.map((r) => ({
+      ...serializeRecipe(r, countMap[r.id] || 0),
+      locked: !isPro && !r.isCustom && r.difficulty >= 4,
+    })),
   });
 }));
 
@@ -583,6 +587,9 @@ app.get('/api/recipes/mine', wrap(async (req, res) => {
 }));
 
 app.post('/api/recipes/mine', wrap(async (req, res) => {
+  if (!req.user.isPro) {
+    return res.status(403).json({ error: 'La création de recettes est réservée aux membres Pro ⭐', proRequired: true });
+  }
   const { title, category, timeMinutes, ingredients, instructions, imageUrl } = req.body;
   if (!title?.trim()) return res.status(400).json({ error: 'Le titre est requis', field: 'title' });
   if (!Array.isArray(ingredients) || !ingredients.length) return res.status(400).json({ error: 'Au moins un ingrédient requis', field: 'ingredients' });
@@ -628,9 +635,60 @@ app.delete('/api/recipes/mine/:id', wrap(async (req, res) => {
   res.json({ ok: true });
 }));
 
+// ---------------------------------------------------------------------------
+// Planificateur de repas (Pro)
+// ---------------------------------------------------------------------------
+app.post('/api/planner/generate', wrap(async (req, res) => {
+  if (!req.user.isPro) {
+    return res.status(403).json({ error: 'Le planificateur est réservé aux membres Pro ⭐', proRequired: true });
+  }
+  const { categories, maxTime } = req.body || {};
+  const DAYS = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi', 'Dimanche'];
+
+  const where = { isCustom: false };
+  if (Array.isArray(categories) && categories.length) where.category = { in: categories };
+  if (maxTime) where.timeMinutes = { lte: Number(maxTime) || 9999 };
+
+  const pool = await prisma.recipe.findMany({
+    where,
+    select: {
+      id: true, name: true, description: true, category: true, area: true, source: true, imageUrl: true,
+      emoji: true, timeMinutes: true, difficulty: true, skillRewards: true, totalXp: true, mainSkill: true,
+      ingredients: true,
+    },
+  });
+  if (pool.length < 7) {
+    return res.status(400).json({ error: 'Pas assez de recettes disponibles avec ces critères' });
+  }
+
+  const shuffled = pool.sort(() => Math.random() - 0.5).slice(0, 7);
+
+  const ingredientMap = {};
+  for (const recipe of shuffled) {
+    let ings;
+    try { ings = JSON.parse(recipe.ingredients || '[]'); } catch { ings = []; }
+    for (const ing of ings) {
+      const raw = typeof ing === 'object' ? (ing.name || ing.item || '') : String(ing || '');
+      const name = raw.trim().toLowerCase();
+      if (name) ingredientMap[name] = (ingredientMap[name] || 0) + 1;
+    }
+  }
+  const shoppingList = Object.entries(ingredientMap)
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .map(([name, count]) => ({ name, count }));
+
+  res.json({
+    days: DAYS.map((day, i) => ({ day, recipe: serializeRecipe(shuffled[i]) })),
+    shoppingList,
+  });
+}));
+
 app.get('/api/recipes/:id', wrap(async (req, res) => {
   const recipe = await prisma.recipe.findUnique({ where: { id: Number(req.params.id) || 0 } });
   if (!recipe) return res.status(404).json({ error: 'Recette introuvable' });
+  if (!req.user.isPro && !recipe.isCustom && recipe.difficulty >= 4) {
+    return res.status(403).json({ error: 'Cette recette est réservée aux membres Pro ⭐', proRequired: true });
+  }
   const cookedCount = await prisma.userRecipeCompletion.count({ where: { userId: req.user.id, recipeId: recipe.id } });
   res.json(serializeRecipe(recipe, cookedCount));
 }));

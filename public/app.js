@@ -61,6 +61,7 @@
     lessons: null,
     ranked: null,
     myRecipes: null,
+    mealPlan: null,
     recipesSubTab: 'catalog',
   };
 
@@ -1005,6 +1006,7 @@
   function renderRecipes() {
     if (state.recipesSubTab === 'quests') { renderRecipesCatalogHeader(); renderQuestsSub(); return; }
     if (state.recipesSubTab === 'myrecipes') { renderMyRecipesHeader(); renderMyRecipesSub(); return; }
+    if (state.recipesSubTab === 'planner') { renderPlannerHeader(); renderPlannerSub(); return; }
     const s = state.recipes;
     const n = activeFilterCount();
     app.innerHTML = `
@@ -1080,9 +1082,77 @@
     icons();
   }
 
+  function proGateHtml(feature, description = '') {
+    return `
+    <div class="rise glass rounded-3xl p-8 text-center space-y-5">
+      <div class="text-5xl">🔒</div>
+      <div>
+        <h3 class="text-xl font-extrabold text-stone-800">Fonctionnalité Pro</h3>
+        <p class="mt-2 text-sm text-stone-500">${description || `Les ${esc(feature)} sont réservés aux membres Pro ⭐.`}</p>
+      </div>
+      <div class="space-y-2.5 text-left">
+        ${[
+          ['chef-hat', 'Recettes personnalisées illimitées'],
+          ['calendar-days', 'Planificateur de repas hebdomadaire'],
+          ['wifi-off', 'Mode Chef Hors-Ligne'],
+          ['book-lock', 'Accès à toutes les recettes A et S'],
+        ].map(([ic, lbl]) => `
+          <div class="flex items-center gap-3">
+            <span class="w-8 h-8 rounded-xl bg-orange-50 border border-orange-200 grid place-items-center shrink-0">
+              <i data-lucide="${ic}" class="w-4 h-4 text-orange-500"></i>
+            </span>
+            <span class="text-sm font-semibold text-stone-700">${lbl}</span>
+          </div>`).join('')}
+      </div>
+      <button data-go-pro class="press w-full rounded-2xl py-4 font-extrabold text-white bg-gradient-to-r from-orange-500 to-amber-500 shadow-[0_4px_20px_rgba(249,115,22,.35)]">
+        <i data-lucide="star" class="w-4 h-4 inline -mt-0.5 mr-1.5"></i>Passer Pro
+      </button>
+    </div>`;
+  }
+
+  function showProModal(feature = '') {
+    openModal(`
+      <div class="modal-in w-full max-w-sm rounded-[24px] my-auto">
+        <div class="glass-strong rounded-[24px] p-6 text-center space-y-4">
+          <div class="text-5xl">⭐</div>
+          <div>
+            <h2 class="text-xl font-extrabold text-stone-800">Fonctionnalité Pro</h2>
+            ${feature ? `<p class="mt-1 text-sm text-stone-500">${esc(feature)}</p>` : ''}
+          </div>
+          <button data-go-pro class="press w-full rounded-2xl py-3.5 font-bold text-white bg-gradient-to-r from-orange-500 to-amber-500 shadow-[0_4px_16px_rgba(249,115,22,.35)]">
+            <i data-lucide="star" class="w-4 h-4 inline -mt-0.5 mr-1.5"></i>Voir les offres Pro
+          </button>
+          <button data-close class="press w-full rounded-2xl py-3 text-sm font-semibold text-stone-500 bg-stone-100 hover:bg-stone-200 transition-colors">Plus tard</button>
+        </div>
+      </div>`);
+    $('#modal-root').querySelector('[data-go-pro]')?.addEventListener('click', () => { closeModal(); setTab('pro'); });
+  }
+
   function recipeCard(r, i = 0) {
     const rank = RANKS[r.difficulty] || RANKS[3];
     const skills = Object.entries(r.skillRewards).sort((a, b) => b[1] - a[1]);
+    if (r.locked) {
+      return `
+      <article class="recipe-card rise group glass rounded-3xl overflow-hidden flex flex-col cursor-pointer" data-recipe="${r.id}" data-recipe-locked="true" style="animation-delay:${Math.min(i, 8) * 0.035}s">
+        <div class="relative">
+          ${recipeVisual(r)}
+          <div class="absolute inset-0 bg-stone-900/60 backdrop-blur-[2px] flex flex-col items-center justify-center gap-2">
+            <div class="w-12 h-12 rounded-full bg-amber-500 grid place-items-center shadow-lg">
+              <i data-lucide="lock" class="w-6 h-6 text-white"></i>
+            </div>
+            <span class="text-white text-xs font-bold bg-black/30 px-3 py-0.5 rounded-full">Pro ⭐</span>
+          </div>
+          <span class="absolute top-2 right-2 w-8 h-8 rounded-xl bg-gradient-to-br ${rank.cls} grid place-items-center text-sm font-black shadow-md opacity-50">${rank.label}</span>
+        </div>
+        <div class="p-3 pt-2.5 flex flex-col gap-2 flex-1 opacity-60">
+          <h3 class="text-[14px] sm:text-[15px] font-bold tracking-tight leading-snug line-clamp-2 text-stone-800">${esc(r.name)}</h3>
+          <div class="mt-auto flex items-center justify-between gap-2">
+            <div class="text-xs"><span class="font-extrabold text-orange-500 tabular-nums">${fmt(r.totalXp)}</span> <span class="text-stone-400 font-semibold">XP</span></div>
+            <span class="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-bold bg-amber-50 border border-amber-200 text-amber-700"><i data-lucide="crown" class="w-3 h-3"></i>Pro</span>
+          </div>
+        </div>
+      </article>`;
+    }
     return `
       <article class="recipe-card rise group glass rounded-3xl overflow-hidden flex flex-col press cursor-pointer" data-recipe="${r.id}" style="animation-delay:${Math.min(i, 8) * 0.035}s">
         <div class="relative">
@@ -1709,12 +1779,13 @@
   // ===========================================================================
   function recipesSubTabHtml() {
     const active = state.recipesSubTab;
-    const btn = (id, icon, label) => `<button data-subtab="${id}" class="flex-1 py-2 rounded-xl text-xs font-bold transition-all ${active === id ? 'bg-white text-orange-600 shadow-sm' : 'text-stone-500'}"><i data-lucide="${icon}" class="w-3.5 h-3.5 inline mr-1 -mt-0.5"></i>${label}</button>`;
+    const btn = (id, icon, label, pro = false) => `<button data-subtab="${id}" class="flex-1 py-2 rounded-xl text-xs font-bold transition-all ${active === id ? 'bg-white text-orange-600 shadow-sm' : 'text-stone-500'}"><i data-lucide="${icon}" class="w-3.5 h-3.5 inline mr-1 -mt-0.5"></i>${label}${pro ? ' ⭐' : ''}</button>`;
     return `
       <div class="flex rounded-2xl bg-stone-100 p-1 gap-1 mb-5">
         ${btn('catalog', 'book-open', 'Catalogue')}
-        ${btn('myrecipes', 'chef-hat', 'Mes recettes')}
-        ${btn('quests', 'target', 'Mes quêtes')}
+        ${btn('myrecipes', 'chef-hat', 'Mes recettes', true)}
+        ${btn('planner', 'calendar-days', 'Planifier', true)}
+        ${btn('quests', 'target', 'Quêtes')}
       </div>`;
   }
 
@@ -2139,6 +2210,178 @@
   }
 
   // ===========================================================================
+  // Planificateur de repas (Pro)
+  // ===========================================================================
+  function renderPlannerHeader() {
+    app.innerHTML = `
+      <section class="rise">
+        <p class="text-[11px] uppercase tracking-[.2em] text-orange-500 font-semibold">Planificateur de repas ⭐ Pro</p>
+        <div class="flex items-end justify-between gap-3 mt-0.5 mb-1">
+          <h1 class="text-2xl sm:text-3xl font-extrabold tracking-tight text-stone-900 font-display">Semaine sur mesure</h1>
+        </div>
+        ${recipesSubTabHtml()}
+      </section>
+      <div id="planner-sub" class="mt-2"></div>`;
+    icons();
+  }
+
+  async function renderPlannerSub() {
+    const container = $('#planner-sub');
+    if (!container) return;
+
+    if (!state.profile?.isPro) {
+      container.innerHTML = proGateHtml('planificateur', 'Génère ton menu de la semaine avec liste de courses automatique.');
+      icons();
+      container.querySelector('[data-go-pro]')?.addEventListener('click', () => setTab('pro'));
+      return;
+    }
+
+    const plan = state.mealPlan;
+
+    container.innerHTML = `
+      <div class="glass rounded-2xl p-5 space-y-4">
+        <div>
+          <p class="text-sm text-stone-500 mb-3">Choisis un temps maximum par repas (optionnel) :</p>
+          <div class="flex gap-2 flex-wrap" id="planner-time-chips">
+            ${[['', 'Tous'], ['30', '≤ 30 min'], ['60', '≤ 1h'], ['90', '≤ 1h30']].map(([v, l]) =>
+              `<button data-planner-time="${v}" class="press rounded-full px-3 py-1.5 text-xs font-bold border border-stone-200 bg-white text-stone-600 hover:border-orange-400 hover:text-orange-600 transition-colors">${l}</button>`
+            ).join('')}
+          </div>
+        </div>
+        <button data-planner-generate class="press w-full rounded-2xl py-4 font-extrabold text-white bg-gradient-to-r from-orange-500 to-amber-500 shadow-[0_4px_20px_rgba(249,115,22,.35)] flex items-center justify-center gap-2">
+          <i data-lucide="shuffle" class="w-5 h-5"></i>${plan ? 'Régénérer le menu' : 'Générer mon menu de la semaine'}
+        </button>
+      </div>
+
+      ${plan ? `
+      <div class="mt-4 space-y-3" id="planner-days">
+        ${plan.days.map(({ day, recipe }) => {
+          const m = SKILL_META[recipe.mainSkill] || SKILL_META.prep;
+          const rank = RANKS[recipe.difficulty] || RANKS[3];
+          return `<div class="rise glass rounded-2xl overflow-hidden flex items-center gap-3 p-3 press cursor-pointer" data-recipe="${recipe.id}">
+            <div class="w-14 h-14 shrink-0 rounded-xl overflow-hidden bg-stone-100">
+              ${recipe.imageUrl ? `<img src="${esc(recipe.imageUrl)}" class="w-full h-full object-cover" loading="lazy" alt="">` : `<div class="w-full h-full bg-gradient-to-br ${m.grad} grid place-items-center text-xl">${esc(recipe.emoji || '🍽️')}</div>`}
+            </div>
+            <div class="flex-1 min-w-0">
+              <p class="text-[11px] font-bold uppercase tracking-wider text-orange-500">${esc(day)}</p>
+              <h3 class="font-bold text-stone-800 text-sm leading-tight line-clamp-1 mt-0.5">${esc(recipe.name)}</h3>
+              <div class="flex items-center gap-2 mt-1">
+                <span class="text-xs text-stone-400"><i data-lucide="clock" class="w-3 h-3 inline -mt-0.5 text-orange-400"></i> ${recipe.timeMinutes} min</span>
+                <span class="text-[10px] font-black px-1.5 py-0.5 rounded bg-gradient-to-br ${rank.cls}">${rank.label}</span>
+                <span class="text-xs font-bold ${m.text}">${m.emoji} ${m.name}</span>
+              </div>
+            </div>
+          </div>`;
+        }).join('')}
+      </div>
+
+      <div class="mt-4 glass rounded-2xl overflow-hidden">
+        <button id="shopping-toggle" class="press w-full flex items-center justify-between p-4 font-bold text-stone-800">
+          <span class="flex items-center gap-2"><i data-lucide="shopping-cart" class="w-5 h-5 text-orange-500"></i>Liste de courses (${plan.shoppingList.length} ingrédients)</span>
+          <i data-lucide="chevron-down" class="w-4 h-4 text-stone-400 transition-transform" id="shopping-chevron"></i>
+        </button>
+        <div id="shopping-list" class="hidden px-4 pb-4 space-y-1.5">
+          ${plan.shoppingList.map(({ name, count }) =>
+            `<div class="flex items-center justify-between text-sm py-1 border-b border-stone-100 last:border-0">
+              <span class="text-stone-700 font-medium capitalize">${esc(name)}</span>
+              ${count > 1 ? `<span class="text-xs font-bold text-orange-500">×${count}</span>` : ''}
+            </div>`
+          ).join('')}
+          <button data-planner-copy class="press mt-3 w-full rounded-xl py-2.5 text-sm font-bold bg-stone-100 border border-stone-200 text-stone-700 flex items-center justify-center gap-2 hover:bg-stone-200 transition-colors">
+            <i data-lucide="copy" class="w-4 h-4"></i>Copier la liste
+          </button>
+        </div>
+      </div>` : ''}`;
+
+    icons();
+
+    let selectedTime = '';
+    container.querySelectorAll('[data-planner-time]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        selectedTime = btn.dataset.plannerTime;
+        container.querySelectorAll('[data-planner-time]').forEach((b) => {
+          const on = b.dataset.plannerTime === selectedTime;
+          b.classList.toggle('border-orange-400', on); b.classList.toggle('text-orange-600', on);
+          b.classList.toggle('border-stone-200', !on); b.classList.toggle('text-stone-600', !on);
+        });
+      });
+    });
+
+    container.querySelector('[data-planner-generate]')?.addEventListener('click', async () => {
+      const btn = container.querySelector('[data-planner-generate]');
+      btn.disabled = true; btn.style.opacity = '0.6';
+      btn.innerHTML = '<i data-lucide="loader-circle" class="w-5 h-5 inline animate-spin -mt-0.5 mr-1.5"></i>Génération…'; icons();
+      try {
+        state.mealPlan = await api('/api/planner/generate', {
+          method: 'POST',
+          body: selectedTime ? { maxTime: parseInt(selectedTime, 10) } : {},
+        });
+        haptic(20); toast('Menu de la semaine prêt ! 📅', { icon: 'calendar-days', tone: 'emerald' });
+        renderPlannerSub();
+      } catch (err) {
+        toast(err.message, { icon: 'alert-triangle', tone: 'rose' });
+        btn.disabled = false; btn.style.opacity = '';
+        btn.innerHTML = '<i data-lucide="shuffle" class="w-5 h-5 inline -mt-0.5 mr-1.5"></i>Générer mon menu de la semaine'; icons();
+      }
+    });
+
+    container.querySelector('[data-planner-copy]')?.addEventListener('click', () => {
+      if (!state.mealPlan) return;
+      const text = state.mealPlan.shoppingList.map(({ name, count }) => `${count > 1 ? `${count}× ` : ''}${name}`).join('\n');
+      navigator.clipboard.writeText(text).then(() => toast('Liste copiée !', { icon: 'copy', tone: 'emerald' })).catch(() => {});
+    });
+
+    $('#shopping-toggle')?.addEventListener('click', () => {
+      const list = $('#shopping-list');
+      const chevron = $('#shopping-chevron');
+      list.classList.toggle('hidden');
+      chevron.style.transform = list.classList.contains('hidden') ? '' : 'rotate(180deg)';
+    });
+  }
+
+  // ===========================================================================
+  // Mode hors-ligne Pro (cache des données API)
+  // ===========================================================================
+  async function cacheOfflineData(statusEl) {
+    if (!('serviceWorker' in navigator)) { if (statusEl) statusEl.textContent = 'Service worker non supporté.'; return; }
+    const sw = await navigator.serviceWorker.ready.catch(() => null);
+    if (!sw?.active) { if (statusEl) statusEl.textContent = 'Service worker inactif.'; return; }
+
+    if (statusEl) statusEl.textContent = 'Collecte des pages de recettes…';
+    const urls = ['/api/lessons'];
+    try {
+      let page = 1;
+      while (page <= 10) {
+        const url = `/api/recipes?page=${page}&limit=60`;
+        const data = await api(url);
+        urls.push(url);
+        if (page >= data.totalPages) break;
+        page++;
+      }
+    } catch { /* ignore */ }
+
+    if (statusEl) statusEl.textContent = `Mise en cache de ${urls.length} ressources…`;
+
+    await new Promise((resolve) => {
+      const handler = (event) => {
+        if (event.data?.type === 'CACHE_OFFLINE_DONE') {
+          navigator.serviceWorker.removeEventListener('message', handler);
+          resolve(event.data.count);
+        }
+      };
+      navigator.serviceWorker.addEventListener('message', handler);
+      sw.active.postMessage({ type: 'CACHE_OFFLINE_DATA', urls });
+      setTimeout(resolve, 30000);
+    });
+
+    const now = new Date().toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' });
+    try { localStorage.setItem('culinarpg_offline_at', now); } catch { /* ignore */ }
+    if (statusEl) statusEl.textContent = `✓ Mis en cache le ${now}`;
+    haptic(20);
+    toast('Recettes et leçons disponibles hors-ligne ! 📴', { icon: 'wifi-off', tone: 'emerald' });
+  }
+
+  // ===========================================================================
   // Onglet PRO
   // ===========================================================================
   function renderPro() {
@@ -2146,18 +2389,21 @@
     const isPro = p?.isPro;
     if (isPro) {
       app.innerHTML = `
-      <div class="rise max-w-lg mx-auto pt-6 pb-10 text-center space-y-6">
-        <div class="text-6xl">⭐</div>
-        <div>
+      <div class="rise max-w-lg mx-auto pt-6 pb-10 space-y-6">
+        <div class="text-center space-y-2">
+          <div class="text-6xl">⭐</div>
           <h1 class="font-display text-3xl font-bold text-stone-800">Tu es Pro !</h1>
-          <p class="mt-2 text-stone-500">Accès illimité à toutes les fonctionnalités.</p>
+          <p class="text-stone-500">Accès illimité à toutes les fonctionnalités.</p>
         </div>
+
         <div class="glass rounded-2xl p-5 text-left space-y-3">
           ${[
             ['graduation-cap', 'Toutes les leçons débloquées', 'Sans gemmes, sans limite'],
-            ['star',           'Badge Pro ⭐ sur ton profil',  'Tu brilles dans le classement'],
-            ['zap',            'Nouvelles leçons en avant-première', 'Accès prioritaire au contenu'],
-            ['gem',            'Gemmes offerts chaque mois',   '50 💎 crédités automatiquement'],
+            ['book-lock',      'Recettes rangs A et S débloquées', 'Tout le catalogue accessible'],
+            ['chef-hat',       'Recettes personnalisées illimitées', 'Crée et cuisine tes propres recettes'],
+            ['calendar-days',  'Planificateur de repas', 'Menu hebdo + liste de courses automatique'],
+            ['star',           'Badge Pro ⭐ sur ton profil', 'Tu brilles dans le classement'],
+            ['gem',            'Gemmes offerts chaque mois', '50 💎 crédités automatiquement'],
           ].map(([ic, title, sub]) => `
             <div class="flex items-start gap-3">
               <span class="mt-0.5 w-8 h-8 rounded-xl bg-orange-50 border border-orange-200 grid place-items-center shrink-0">
@@ -2166,8 +2412,37 @@
               <div><p class="font-semibold text-stone-800 text-sm">${title}</p><p class="text-xs text-stone-400">${sub}</p></div>
             </div>`).join('')}
         </div>
+
+        <div class="glass rounded-2xl p-5 space-y-3">
+          <div class="flex items-center gap-3">
+            <span class="w-10 h-10 rounded-xl bg-stone-100 border border-stone-200 grid place-items-center shrink-0">
+              <i data-lucide="wifi-off" class="w-5 h-5 text-stone-600"></i>
+            </span>
+            <div>
+              <p class="font-bold text-stone-800">Chef Hors-Ligne 📴</p>
+              <p class="text-xs text-stone-400">Consulte recettes et leçons sans connexion internet</p>
+            </div>
+          </div>
+          <button id="cache-offline-btn" class="press w-full rounded-xl py-3 text-sm font-bold bg-stone-900 text-white hover:bg-stone-800 transition-colors flex items-center justify-center gap-2">
+            <i data-lucide="download" class="w-4 h-4"></i>Télécharger pour hors-ligne
+          </button>
+          <p id="offline-status" class="text-xs text-center text-stone-400 min-h-[1.2em]"></p>
+        </div>
       </div>`;
       icons();
+      try {
+        const cached = localStorage.getItem('culinarpg_offline_at');
+        if (cached) $('#offline-status').textContent = `Dernière mise en cache : ${cached}`;
+      } catch { /* ignore */ }
+      $('#cache-offline-btn')?.addEventListener('click', async () => {
+        const btn = $('#cache-offline-btn');
+        const statusEl = $('#offline-status');
+        btn.disabled = true; btn.style.opacity = '0.6';
+        btn.innerHTML = '<i data-lucide="loader-circle" class="w-4 h-4 inline animate-spin -mt-0.5 mr-1.5"></i>Téléchargement…'; icons();
+        await cacheOfflineData(statusEl);
+        btn.disabled = false; btn.style.opacity = '';
+        btn.innerHTML = '<i data-lucide="download" class="w-4 h-4 inline -mt-0.5 mr-1.5"></i>Télécharger pour hors-ligne'; icons();
+      });
       return;
     }
     app.innerHTML = `
@@ -2380,6 +2655,14 @@
   async function renderMyRecipesSub() {
     const container = $('#myrecipes-sub');
     if (!container) return;
+
+    if (!state.profile?.isPro) {
+      container.innerHTML = proGateHtml('recettes personnalisées', 'Crée tes propres recettes et gagne de l\'XP en les cuisinant. Fonctionnalité exclusive Pro ⭐.');
+      icons();
+      container.querySelector('[data-go-pro]')?.addEventListener('click', () => setTab('pro'));
+      return;
+    }
+
     container.innerHTML = `<div class="flex justify-center py-8"><i data-lucide="loader-circle" class="w-8 h-8 animate-spin text-orange-400"></i></div>`;
     icons();
     try {
@@ -2642,7 +2925,10 @@
     }
     if (t.closest('#load-more')) { loadRecipes(); return; }
     const recipe = t.closest('[data-recipe]');
-    if (recipe) openRecipe(recipe.dataset.recipe);
+    if (recipe) {
+      if (recipe.dataset.recipeLocked === 'true') { showProModal('Les recettes rangs A et S sont réservées aux membres Pro ⭐.'); return; }
+      openRecipe(recipe.dataset.recipe);
+    }
 
     // Sub-tabs Recettes
     const subtab = t.closest('[data-subtab]');
@@ -2664,7 +2950,16 @@
 
     // Mes Recettes perso
     const myrecipeCreate = t.closest('[data-myrecipe-create]');
-    if (myrecipeCreate) { e.stopPropagation(); showCreateRecipeModal(); return; }
+    if (myrecipeCreate) {
+      e.stopPropagation();
+      if (!state.profile?.isPro) { showProModal('La création de recettes est réservée aux membres Pro ⭐.'); return; }
+      showCreateRecipeModal();
+      return;
+    }
+
+    // Pro gate boutons
+    const goPro = t.closest('[data-go-pro]');
+    if (goPro) { setTab('pro'); return; }
     const myrecipeDelete = t.closest('[data-myrecipe-delete]');
     if (myrecipeDelete) { e.stopPropagation(); handleMyRecipeDelete(myrecipeDelete.dataset.myrecipeDelete); return; }
 
