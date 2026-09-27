@@ -2388,16 +2388,20 @@
 
     if (statusEl) statusEl.textContent = 'Collecte des pages de recettes…';
     const urls = ['/api/lessons'];
+    const recipeIds = new Set();
     try {
       let page = 1;
-      while (page <= 10) {
-        const url = `/api/recipes?page=${page}&limit=60`;
+      while (page <= 20) {
+        const url = `/api/recipes?page=${page}&limit=24`;
         const data = await api(url);
         urls.push(url);
+        (data.items || []).forEach((r) => recipeIds.add(r.id));
         if (page >= data.totalPages) break;
         page++;
       }
     } catch { /* ignore */ }
+    // Cache aussi chaque fiche recette individuelle
+    recipeIds.forEach((id) => urls.push(`/api/recipes/${id}`));
 
     if (statusEl) statusEl.textContent = `Mise en cache de ${urls.length} ressources…`;
 
