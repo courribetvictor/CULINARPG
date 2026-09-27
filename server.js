@@ -51,7 +51,7 @@ const stripe = process.env.STRIPE_SECRET_KEY
 // Google Play Billing â€” Android Publisher API
 // Env vars: GOOGLE_SERVICE_ACCOUNT_JSON (service account JSON string)
 //           TWA_PACKAGE_NAME (Android package name, ex: com.culinarpg.app)
-const PLAY_PACKAGE = (process.env.TWA_PACKAGE_NAME || process.env.GOOGLE_PLAY_PACKAGE_NAME || 'com.courribetvictor.culinarpg').trim();
+const PLAY_PACKAGE = (process.env.TWA_PACKAGE_NAME || process.env.GOOGLE_PLAY_PACKAGE_NAME || 'com.culinarpg.app').trim();
 let androidPublisher = null;
 if (process.env.GOOGLE_SERVICE_ACCOUNT_JSON && PLAY_PACKAGE) {
   try {
@@ -285,7 +285,7 @@ app.get('/api/meta', (req, res) => {
 
 // Liaison app Android (TWA) â†” site : sans ce fichier, Android affiche une barre d'adresse
 app.get('/.well-known/assetlinks.json', (req, res) => {
-  const pkg = (process.env.TWA_PACKAGE_NAME || 'com.courribetvictor.culinarpg').trim();
+  const pkg = (process.env.TWA_PACKAGE_NAME || 'com.culinarpg.app').trim();
   const fingerprints = (process.env.TWA_SHA256_FINGERPRINTS || '').split(',').map((s) => s.trim()).filter(Boolean);
   res.json(fingerprints.length ? [{
     relation: ['delegate_permission/common.handle_all_urls'],
@@ -1787,4 +1787,5 @@ process.on('SIGINT', async () => {
   await prisma.$disconnect();
   process.exit(0);
 });
+
 

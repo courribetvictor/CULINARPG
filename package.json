@@ -28,5 +28,8 @@
     "googleapis": "^182.0.0",
     "prisma": "^6.19.3",
     "stripe": "^22.6.2"
+  },
+  "devDependencies": {
+    "sharp": "^0.35.4"
   }
 }
